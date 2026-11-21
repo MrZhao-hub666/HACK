@@ -3,7 +3,12 @@ import { navigation } from "./workspace";
 import Icon from "./Icon.vue";
 import type { Page, User } from "../types";
 
-defineProps<{ page: Page; waiting: number; user: User }>();
+defineProps<{
+  page: Page;
+  waiting: number;
+  recommendations: number;
+  user: User;
+}>();
 const emit = defineEmits<{
   go: [id: Page];
   account: [];
@@ -42,7 +47,13 @@ const emit = defineEmits<{
   <div class="sidebar-foot">
     <button class="assistant-entry" @click="emit('brief')">
       <span class="assistant-symbol"><icon name="spark" size="md" /></span
-      ><b>Copilot 助手</b><icon name="chevron" size="sm" />
+      ><b>Copilot 助手</b
+      ><span
+        v-if="recommendations"
+        class="assistant-count"
+        :aria-label="recommendations + ' 个待处理推荐'"
+        >{{ recommendations }}</span
+      ><icon name="chevron" size="sm" />
     </button>
     <button
       class="profile account-entry"

@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import AlternativeCard from "./AlternativeCard.vue";
+import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed } from "vue";
 import { stamp } from "../shared";
 import Icon from "./Icon.vue";
-import type { Company, InquiryRow } from "../types";
+import type { Alternative, Company, InquiryRow } from "../types";
 
 const props = defineProps<{
+  alternatives: Alternative[];
+  live: boolean;
   queue: InquiryRow[];
   rows: InquiryRow[];
   companies: Company[];
@@ -19,7 +23,7 @@ const emit = defineEmits<{
 }>();
 const dialog = ref<HTMLDialogElement | null>(null),
   topic = ref("优先跟进");
-const topics = ["优先跟进", "我的交接", "客户核实"];
+const topics = ["优先跟进", "我的交接", "客户核实", "替代买家"];
 const mine = computed(() =>
   props.rows.filter((r) => r.owner === props.actor && r.state !== "已结束"),
 );
@@ -55,8 +59,8 @@ const summary = computed(() => {
     " 条业务询盘待回。先处理夜间来信，同组内较早的来信排在前面。"
   );
 });
-function show() {
-  topic.value = "优先跟进";
+function show(preferAlternatives = false) {
+  topic.value = preferAlternatives ? "替代买家" : "优先跟进";
   dialog.value?.showModal();
 }
 function close() {
@@ -90,12 +94,37 @@ defineExpose({ show });
           @click="topic = t"
           :aria-pressed="topic === t"
         >
-          {{ t }}
+          {{ t
+          }}<span v-if="t === '替代买家' && alternatives.length">
+            · {{ alternatives.length }}</span
+          >
         </button>
       </div>
       <div v-if="failed" class="notice" role="alert">
         {{ failed }}
         <button class="textbtn" @click="emit('reload')">重试</button>
+      </div>
+      <div v-if="ready && topic === '替代买家'" class="brief-result">
+        <AlternativeCard
+          v-for="r in alternatives"
+          :key="r.inquiry_id + '-' + r.id"
+          :item="r"
+          :actor="actor"
+          :live="live"
+          show-origin
+          @changed="emit('reload')"
+          @open="
+            close();
+            emit('open', $event);
+          "
+          @company="
+            close();
+            emit('company', $event);
+          "
+        />
+        <div v-if="!alternatives.length" class="empty">
+          <Icon name="compass" />暂无待处理推荐。可从询盘详情查找替代买家。
+        </div>
       </div>
       <div v-else-if="ready" :key="topic" class="brief-result">
         <div class="brief-summary">
@@ -122,7 +151,11 @@ defineExpose({ show });
           <icon name="check" />当前没有此类待办
         </div>
       </div>
-      <div v-else class="empty">正在读取销售数据…</div>
+      <LoadingSkeleton
+        v-else-if="!failed"
+        layout="rows"
+        label="正在加载跟进简报"
+      />
     </div>
   </dialog>
 </template>

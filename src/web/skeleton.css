@@ -1,0 +1,44 @@
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.loading-skeleton { min-width: 0; }
+.sk-shape {
+  display: block;
+  width: 100%;
+  height: .75rem;
+  border-radius: var(--radius-small);
+  background: var(--loading-fill);
+}
+.sk-stack { display: grid; gap: var(--space-12); align-content: start; min-width: 0; }
+.sk-short { width: min(28%, 7rem); }
+.sk-medium { width: min(62%, 19rem); }
+.sk-long { width: 88%; }
+.sk-heading { width: min(66%, 17rem); height: 1.25rem; }
+.sk-tile { flex: none; width: 2rem; height: 2rem; border-radius: var(--radius-control); }
+.sk-field { height: 2.25rem; border-radius: var(--radius-control); }
+.sk-row { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-20); min-height: 59px; border-bottom: 1px solid var(--divider); }
+.sk-row .sk-stack { flex: 1; gap: var(--space-8); }
+.sk-row:last-child { border-bottom: 0; }
+.sk-toolbar { padding: var(--space-16) var(--space-20); display: grid; gap: var(--space-12); }
+.sk-toolbar .sk-field { width: min(21rem, 85%); }
+.loading-skeleton[data-layout="inbox"] .sk-row { min-height: 104px; }
+.sk-detail { padding: var(--space-20); }
+.sk-box, .sk-card { padding: var(--space-16); border: 1px solid var(--divider); border-radius: var(--radius-card); }
+.sk-box { background: var(--surface-subtle); margin-top: var(--space-8); }
+.sk-card { min-height: 11rem; }
+.sk-lines { padding-block: var(--space-12); }
+.session-loading .loading-skeleton { min-width: 10rem; margin-top: var(--space-12); }
+.distribution > .loading-skeleton { grid-column: 1 / -1; }
+.sk-ring { width: min(149px,100%); aspect-ratio: 1; border: 16px solid var(--loading-fill); border-radius: var(--radius-round); }
+.sk-number { display: inline-block; vertical-align: middle; width: 2.5rem; height: .75em; }
+@media (max-width: 700px) {
+  .sk-detail, .sk-toolbar, .sk-row { padding: var(--space-12); }
+  .sk-chart { display: grid; grid-template-columns: 42% minmax(0,1fr); align-items: center; }
+  .sk-ring { width: min(115px,100%); border-width: 13px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-paint, .sk-number { animation: loading-pulse var(--motion-loading) ease-in-out infinite alternate; }
+  @keyframes loading-pulse { from { opacity: 1; } to { opacity: .55; } }
+}

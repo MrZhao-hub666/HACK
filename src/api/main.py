@@ -12,6 +12,7 @@ from pydantic import Field
 from typing import Literal
 
 from .accounts import team
+from .alternatives import router as alternatives_router
 from .auth import browser_write, router as auth_router, workspace_user
 from .channels import receiver_settings, router
 from .db import audit, database, initialize, one, utc
@@ -104,21 +105,35 @@ def companies():
 
 
 @business.post("/api/companies")
-def adopt(req: NewCompany):
+def adopt(req: NewCompany, user=Depends(workspace_user)):
     with database(True) as db:
         return save_company(
-            db, req.model_dump(exclude={"source", "checked"}), req.source, req.checked
+            db,
+            req.model_dump(exclude={"source", "checked"}),
+            req.source,
+            req.checked,
+            owner=user["display_name"],
         )
 
 
+class CompanyUpdate(Company):
+    owner: str | None = Field(default=None, max_length=80)
+
+
 @business.put("/api/companies/{ident}")
-def company_edit(ident: int, req: Company):
-    data = req.model_dump()
+def company_edit(ident: int, req: CompanyUpdate):
+    data = req.model_dump(exclude_none=True)
     for key in ("website", "social", "evidence_url"):
         valid_url(data[key])
     data["domain"] = host(data["website"])
     with database(True) as db:
-        one(db, "SELECT id FROM companies WHERE id=?", (ident,))
+        previous = one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+        if (
+            data.get("owner")
+            and data["owner"] != previous["owner"]
+            and data["owner"] not in team(db)
+        ):
+            raise HTTPException(422, "请选择启用的档案负责人")
         try:
             db.execute(
                 "UPDATE companies SET reviewed=1,"
@@ -128,6 +143,12 @@ def company_edit(ident: int, req: Company):
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(409, "该官网已关联其他买家") from exc
+        if any(
+            previous[key] != data[key] for key in ("name", "kind", "country", "website")
+        ):
+            db.execute(
+                "DELETE FROM alternative_batches WHERE source_company_id=?", (ident,)
+            )
         return one(db, "SELECT * FROM companies WHERE id=?", (ident,))
 
 
@@ -223,6 +244,7 @@ def link(ident: int, req: Merge, user=Depends(workspace_user)):
         return merge(db, ident, req.target_id, user["display_name"])
 
 
+business.include_router(alternatives_router)
 app.include_router(business)
 
 web = Path(__file__).resolve().parent.parent / "web" / "dist"

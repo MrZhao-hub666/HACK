@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AlternativePanel from "./AlternativePanel.vue";
+import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed, watch } from "vue";
 import {
   api,
@@ -12,6 +14,7 @@ import {
 import { filters, matchesFilter, channelStyles } from "./workspace";
 import Icon from "./Icon.vue";
 import type {
+  AlternativeBatch,
   InquiryRow,
   InquiryDetail,
   Company,
@@ -27,7 +30,7 @@ const props = defineProps<{
   focusId: number;
   initialFilter: Filter;
 }>();
-const emit = defineEmits<{ reload: []; compose: [] }>();
+const emit = defineEmits<{ reload: []; compose: []; company: [id: number] }>();
 const search = ref(""),
   filter = ref(props.initialFilter || "全部"),
   channel = ref(""),
@@ -53,6 +56,23 @@ const visible = computed(() =>
       matchesFilter(r, filter.value, props.actor),
   ),
 );
+const companySelect = ref<HTMLSelectElement | null>(null);
+function linkCompany() {
+  const field = companySelect.value;
+  const section = field?.closest("details");
+  if (section) section.open = true;
+  field?.focus();
+}
+function alternativesChanged(batch: AlternativeBatch) {
+  if (
+    item.value?.id === batch.inquiry_id &&
+    item.value.company_id === batch.source_company_id
+  ) {
+    item.value.alternatives = batch;
+    if (!item.value.owner) item.value.owner = props.actor;
+  }
+  emit("reload");
+}
 const latest = computed(() => item.value?.messages.at(-1)?.features);
 let seq = 0;
 async function open(id: number, clear = true) {
@@ -187,7 +207,7 @@ function record(type: "notes" | "reply") {
           :key="r.id"
           :class="{ picked: selected === r.id }"
           :aria-pressed="selected === r.id"
-          @click="open(r.id)"
+          @click="selected !== r.id && open(r.id)"
         >
           <div class="line">
             <span class="channel"
@@ -219,6 +239,10 @@ function record(type: "notes" | "reply") {
         <div class="empty" v-if="!visible.length">没有符合条件的询盘</div>
       </div>
       <article class="detail" v-if="item" :key="item.id">
+        <div v-if="error" class="notice" role="alert">
+          {{ error }}
+          <button class="textbtn" @click="open(selected, false)">重试</button>
+        </div>
         <div class="line">
           <span class="micro"
             >询盘 #{{ String(item.id).padStart(4, "0") }}</span
@@ -243,6 +267,16 @@ function record(type: "notes" | "reply") {
             <span class="tag" v-for="q in latest.quantities">{{ q }}</span>
           </div>
         </div>
+        <AlternativePanel
+          :key="item.id + '-' + item.company_id"
+          :inquiry="item"
+          :actor="actor"
+          :source="companies.find((c) => c.id === item?.company_id)"
+          :live="config.live_search"
+          @link="linkCompany"
+          @company="emit('company', $event)"
+          @changed="alternativesChanged"
+        />
         <div class="tabs">
           <button
             v-for="t in ['消息', '处理记录']"
@@ -341,6 +375,7 @@ function record(type: "notes" | "reply") {
           <div class="fields compact">
             <label
               >关联企业<select
+                ref="companySelect"
                 aria-label="关联企业"
                 :value="item.company_id || ''"
                 :disabled="busy"
@@ -436,8 +471,13 @@ function record(type: "notes" | "reply") {
           </button>
         </div>
       </article>
-      <div v-else class="empty">
-        {{ error || (loading ? "读取中…" : "选择询盘查看消息")
+      <LoadingSkeleton
+        v-else-if="loading"
+        layout="detail"
+        label="正在加载询盘详情"
+      />
+      <div v-else class="empty" :role="error ? 'alert' : undefined">
+        {{ error || "选择询盘查看消息"
         }}<button v-if="error" class="ghost" @click="open(selected, false)">
           重试
         </button>
