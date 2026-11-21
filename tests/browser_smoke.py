@@ -29,6 +29,10 @@ def check_loading_states(context, url):
     try:
         with page.expect_request("**/api/inquiries"):
             page.goto(url + "/#overview")
+        expect(
+            page.get_by_role("tabpanel", name="客户经营统计").get_by_role("status")
+        ).to_be_visible()
+        page.get_by_role("tab", name="询盘跟进统计").click()
         expect(page.locator(".sk-number")).to_have_count(4)
         expect(page.locator('[data-layout="chart"]')).to_be_visible()
         expect(page.locator(".donut")).to_have_count(0)
@@ -118,6 +122,145 @@ def check_alternative_buyers(page):
     expect(panel.locator(".alternative-card")).to_have_count(1)
     expect(panel).to_contain_text("已采纳")
     expect(panel).to_contain_text("负责人 · 林悦")
+
+
+def check_outreach(page):
+    page.get_by_role("button", name="展会拓客", exact=True).click()
+    expect(page.get_by_role("heading", name="LKQ Europe Gmbh")).to_be_visible()
+    page.get_by_label("来源", exact=True).select_option("广交会")
+    page.get_by_role("button", name="检索线索").click()
+    expect(page.get_by_role("heading", name="Command Auto Parts LTD")).to_be_visible()
+    page.get_by_label("来源", exact=True).select_option("上海法兰克福")
+    page.get_by_role("button", name="检索线索").click()
+    page.locator(".companycard").filter(has_text="LKQ").get_by_role(
+        "button", name="登记线索"
+    ).click()
+    page.get_by_role("button", name="保存并核实").click()
+    page.get_by_label("原文摘录").fill("LKQ Europe Gmbh（瑞士）")
+    page.get_by_label("核实理由").fill("展会主办方列为优选买家代表")
+    page.get_by_role("button", name="保存核实结果").click()
+    expect(page.get_by_role("heading", name="采购联系方式")).to_be_visible()
+    page.get_by_role("button", name="填入待核实字段").first.click()
+    page.get_by_role("button", name="保存核实联系方式").click()
+    page.get_by_label("展会名称（邮件用）").fill("Automechanika Shanghai")
+    page.get_by_label("展馆及展位").fill("Hall 2 / B15")
+    page.get_by_label("开始日期").fill("2027-11-21")
+    page.get_by_label("结束日期").fill("2027-11-25")
+    page.get_by_label("收件邮箱", exact=True).select_option(
+        label="lkqe-direct-purchasing@lkqeurope.com · 直接采购部门"
+    )
+    page.get_by_role("button", name="生成英文邀约草稿").click()
+    expect(page.get_by_label("邮件正文")).to_have_value(re.compile("Hall 2 / B15"))
+    page.get_by_label("产品匹配度", exact=True).select_option("C")
+    with page.expect_download() as download:
+        page.get_by_role("link", name="导出当前名单 Excel").click()
+    assert download.value.suggested_filename.endswith(".xlsx")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.get_by_role("button", name="检索来源", exact=True).click()
+    page.get_by_label("来源", exact=True).select_option("社媒原帖")
+    page.get_by_role("button", name="检索线索").click()
+    page.get_by_role("button", name="登记线索").click()
+    page.get_by_role("button", name="保存并核实").click()
+    page.get_by_label("原文摘录").fill("I'd rather show up to a shop with my own parts")
+    page.get_by_role("button", name="辅助判断原帖意图").click()
+    expect(page.get_by_label("来源意图")).to_have_value("待判断")
+    page.get_by_label("处理结论").select_option("排除")
+    page.get_by_label("核实理由").fill("历史车主需求，本轮展会名单只跟进企业采购。")
+    page.get_by_role("button", name="保存核实结果").click()
+    expect(
+        page.locator(".out-row").filter(has_text="Trailer brake shoes")
+    ).to_contain_text("排除")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+
+
+def check_customer_statistics(context, url):
+    from datetime import datetime, timezone
+
+    page = context.new_page()
+    try:
+        page.clock.set_fixed_time(datetime(2026, 11, 20, 16, 30, tzinfo=timezone.utc))
+        base = context.request.get(url + "/api/companies").json()[0]
+        dates = [
+            "2026-11-20T16:01:00Z",
+            "2026-11-20T15:59:59Z",
+            "2026-11-03T03:00:00Z",
+            None,
+        ]
+        countries = ["MY", "Malaysia", "德国", ""]
+        test_buyers = [
+            dict(
+                base,
+                id=i + 100,
+                name=f"统计验收企业{i}",
+                country=countries[i],
+                archived_at=d,
+                outreach_grade="A" if i == 2 else None,
+                won_at=d if i == 1 else None,
+                owner="销售" if i == 2 else "",
+                source="广交会" if i < 2 else "销售录入",
+            )
+            for i, d in enumerate(dates)
+        ]
+        page.route("**/api/companies", lambda route: route.fulfill(json=test_buyers))
+        rows = context.request.get(url + "/api/inquiries").json()
+        for i, row in enumerate(rows):
+            row.update(
+                company_id=100 if i < 2 else 101, state="跟进中" if i < 2 else "已结束"
+            )
+        page.route("**/api/inquiries", lambda route: route.fulfill(json=rows))
+        page.goto(url + "/#overview")
+        customers = page.get_by_role("tab", name="客户经营统计")
+        inquiries = page.get_by_role("tab", name="询盘跟进统计")
+        expect(customers).to_have_attribute("aria-selected", "true")
+        expect(page.get_by_role("heading", name="渠道分布")).to_be_hidden()
+        for label, number in [
+            ("全部客户", 4),
+            ("今日新增", 1),
+            ("已确认成交", 1),
+            ("待分配客户", 3),
+            ("跟进中客户", 1),
+        ]:
+            expect(
+                page.get_by_role("button", name=f"{label} {number} 家，查看明细")
+            ).to_be_visible()
+        page.get_by_role("button", name="马来西亚 2 家 50%").click()
+        dialog = page.get_by_role("dialog", name="马来西亚")
+        expect(dialog.get_by_role("link")).to_have_count(2)
+        dialog.get_by_role("button", name="关闭明细").click()
+        page.get_by_label("客户分布维度").select_option("procurement")
+        expect(page.locator(".trend-summary strong")).to_have_text("2")
+        page.get_by_role("button", name="近30天").click()
+        expect(page.locator(".trend-summary strong")).to_have_text("3")
+        page.get_by_role("button", name="档龄", exact=True).click()
+        expect(page.get_by_role("button", name="入档时间未知 1 家 25%")).to_be_visible()
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        inquiries.click()
+        expect(page.get_by_role("tabpanel", name="询盘跟进统计")).to_be_visible()
+        expect(page.get_by_role("heading", name="优先跟进")).to_be_visible()
+        expect(page.get_by_role("heading", name="客户分级")).to_be_hidden()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        inquiries.press("ArrowLeft")
+        expect(customers).to_be_focused()
+        expect(page.get_by_label("客户分布维度")).to_have_value("procurement")
+        expect(page.get_by_role("button", name="档龄", exact=True)).to_have_attribute(
+            "aria-pressed", "true"
+        )
+        page.get_by_role("button", name="今日新增 1 家，查看明细").click()
+        expect(page.get_by_role("dialog").get_by_role("link")).to_contain_text(
+            "统计验收企业0"
+        )
+        page.keyboard.press("Escape")
+        test_buyers.clear()
+        page.reload()
+        expect(page.get_by_text("客户入档后显示分布")).to_be_visible()
+        expect(
+            page.get_by_role("button", name="全部客户 0 家，查看明细")
+        ).to_be_visible()
+    finally:
+        page.close()
 
 
 def check_domestic(page):
@@ -213,9 +356,11 @@ def main():
                 expect(
                     page.locator(".desktop-nav .lucide-layout-dashboard")
                 ).to_be_visible()
+                page.get_by_role("tab", name="询盘跟进统计").click()
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
+                check_customer_statistics(context, url)
                 check_domestic(page)
                 page.get_by_role("button", name="查看跟进简报").click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")
@@ -227,10 +372,12 @@ def main():
                 expect(page.get_by_role("heading", name="编辑客户档案")).to_be_visible()
                 page.get_by_role("button", name="关闭", exact=True).click()
                 page.get_by_role("button", name="工作台总览").click()
+                page.get_by_role("tab", name="询盘跟进统计").click()
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
                 expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
                 check_alternative_buyers(page)
+                check_outreach(page)
                 page.get_by_role("button", name="买家发现", exact=True).click()
                 expect(page.locator(".companycard")).to_have_count(3)
                 card = page.locator(".companycard").filter(has_text="Swee Siang")

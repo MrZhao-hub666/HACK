@@ -70,6 +70,7 @@ onMounted(run);
         <icon name="compass" />
         <h2>发现买家</h2>
       </div>
+      <a href="#outreach">展会买家及采购原帖 ↗</a>
       <label class="inputlabel">
         数据来源
         <select v-model="mode" :disabled="busy">

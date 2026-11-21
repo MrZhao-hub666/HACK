@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS companies (
  contact TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',
  evidence TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '',
  source TEXT NOT NULL, checked TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0,
- reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT ''
+ reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+ archived_at TEXT, won_at TEXT, won_by TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS company_domain ON companies(domain) WHERE domain <> '';
 CREATE TABLE IF NOT EXISTS inquiries (
@@ -71,6 +72,27 @@ CREATE TABLE IF NOT EXISTS alternative_slots (
 
 CREATE INDEX IF NOT EXISTS company_name_lookup ON companies(lower(name));
 CREATE INDEX IF NOT EXISTS inquiry_company_owner ON inquiries(company_id,owner) WHERE merged_into IS NULL;
+
+CREATE TABLE IF NOT EXISTS outreach_evidence (
+ id INTEGER PRIMARY KEY, identity TEXT NOT NULL UNIQUE, source TEXT NOT NULL, edition TEXT NOT NULL,
+ title TEXT NOT NULL, market TEXT NOT NULL, url TEXT NOT NULL, snippet TEXT NOT NULL,
+ company_id INTEGER REFERENCES companies(id), verdict TEXT NOT NULL DEFAULT '待核实',
+ quote TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', published TEXT NOT NULL DEFAULT '',
+ intent TEXT NOT NULL DEFAULT '待判断', fit TEXT NOT NULL DEFAULT 'C', reason TEXT NOT NULL DEFAULT '', reviewer TEXT NOT NULL DEFAULT '',
+ updated TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS outreach_company ON outreach_evidence(company_id,verdict,fit);
+CREATE TABLE IF NOT EXISTS outreach_contacts (
+ id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), kind TEXT NOT NULL,
+ value TEXT NOT NULL, holder TEXT NOT NULL, url TEXT NOT NULL, reviewer TEXT NOT NULL,
+ updated TEXT NOT NULL, UNIQUE(company_id,kind,value)
+);
+CREATE TABLE IF NOT EXISTS outreach_drafts (
+ id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id), event TEXT NOT NULL,
+ starts TEXT NOT NULL, ends TEXT NOT NULL, booth TEXT NOT NULL, recipient TEXT NOT NULL,
+ subject TEXT NOT NULL, body TEXT NOT NULL, actor TEXT NOT NULL, updated TEXT NOT NULL,
+ UNIQUE(company_id,event,starts,ends,booth)
+);
 
 CREATE TABLE IF NOT EXISTS domestic_signals (
  id INTEGER PRIMARY KEY, platform TEXT NOT NULL, kind TEXT NOT NULL, external_id TEXT NOT NULL,

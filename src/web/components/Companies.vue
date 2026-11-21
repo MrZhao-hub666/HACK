@@ -22,6 +22,8 @@ const q = ref(""),
   role = ref(""),
   id = ref(0),
   owner = ref(""),
+  deal = ref(false),
+  originalDeal = ref(false),
   editor = ref<HTMLDialogElement | null>(null),
   error = ref(""),
   form = ref(blankCompany()),
@@ -39,6 +41,7 @@ const filtered = computed(() =>
 function start(c?: Company) {
   id.value = c?.id || 0;
   owner.value = c?.owner || "";
+  originalDeal.value = deal.value = Boolean(c?.won_at);
   form.value = blankCompany();
   if (c)
     for (const key of Object.keys(form.value) as (keyof CompanyFields)[])
@@ -53,7 +56,8 @@ async function save() {
     await api(
       id.value ? "/companies/" + id.value : "/companies",
       id.value ? "PUT" : "POST",
-      id.value ? { ...form.value, owner: owner.value } : form.value,
+      id.value ? { ...form.value, owner: owner.value,
+        ...(deal.value !== originalDeal.value ? {confirmed_deal: deal.value} : {}) } : form.value,
     );
     editor.value?.close();
     emit("reload");
@@ -104,12 +108,15 @@ onMounted(() => {
         </div>
         <h3>{{ c.name }}</h3>
         <small v-if="c.owner">档案负责人 · {{ c.owner }}</small>
-        <p>{{ c.evidence || "等待补充业务证据" }}</p>
+        <p>{{ c.evidence || c.outreach_quote || "等待补充业务证据" }}</p>
         <small v-if="c.contact">公开业务联系 · {{ c.contact }}</small>
         <div class="tags">
+          <span v-if="c.outreach_grade" class="tag blue">产品匹配 {{ c.outreach_grade }}</span>
+          <a :href="'#outreach?id='+c.id">分级与邀约</a>
           <span class="tag blue">{{ c.kind }}</span>
           <span class="tag">{{ c.country || "地区待核实" }}</span>
           <span class="tag amber">{{ c.procurement }}</span>
+          <span v-if="c.won_at" class="tag" :title="'确认人 · '+c.won_by">已确认成交</span>
         </div>
         <div v-if="c.next_action" class="next">
           <b>下一步</b> {{ c.next_action }}
@@ -193,6 +200,9 @@ onMounted(() => {
           </select>
         </label>
         <label>官方网站<input type="url" v-model="form.website" /> </label>
+        <label v-if="id">成交记录<select v-model="deal" aria-label="成交记录">
+          <option :value="false">尚未确认成交</option><option :value="true">已确认成交</option>
+        </select></label>
         <label>社交主页<input type="url" v-model="form.social" /> </label>
       </div>
       <label class="inputlabel"

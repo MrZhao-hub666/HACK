@@ -25,6 +25,7 @@ export const kinds = [
   "配件门店",
   "贸易商",
   "渠道伙伴",
+  "批发进口商", "经销代理商", "车桥厂", "OEM采购商", "ODM采购商",
 ];
 export const states = ["待处理", "跟进中", "等客户补充", "已结束"];
 export const purchases = ["待核实", "可直接采购", "委托采购", "仅转售"];

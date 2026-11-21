@@ -20,6 +20,7 @@ from .domestic import router as domestic_router
 from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
 from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
+from .outreach import router as outreach_router
 from .prospects import discover, host, save_company, valid_url
 from .seed import seed
 
@@ -100,7 +101,12 @@ def companies():
         return [
             dict(r)
             for r in db.execute(
-                "SELECT * FROM companies WHERE saved=1 ORDER BY id DESC"
+                """SELECT c.*,
+                   (SELECT min(e.fit) FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实') AS outreach_grade,
+                   (SELECT e.quote FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实' ORDER BY e.fit,e.updated DESC LIMIT 1) AS outreach_quote
+                   FROM companies c WHERE c.saved=1 ORDER BY c.id DESC"""
             )
         ]
 
@@ -119,16 +125,20 @@ def adopt(req: NewCompany, user=Depends(workspace_user)):
 
 class CompanyUpdate(Company):
     owner: str | None = Field(default=None, max_length=80)
+    confirmed_deal: bool | None = None
 
 
 @business.put("/api/companies/{ident}")
-def company_edit(ident: int, req: CompanyUpdate):
-    data = req.model_dump(exclude_none=True)
+def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
+    data = req.model_dump(exclude_none=True, exclude={"confirmed_deal"})
     for key in ("website", "social", "evidence_url"):
         valid_url(data[key])
     data["domain"] = host(data["website"])
     with database(True) as db:
         previous = one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+        if req.confirmed_deal is not None and req.confirmed_deal != bool(previous["won_at"]):
+            data["won_at"] = utc() if req.confirmed_deal else None
+            data["won_by"] = user["display_name"] if req.confirmed_deal else None
         if (
             data.get("owner")
             and data["owner"] != previous["owner"]
@@ -246,6 +256,7 @@ def link(ident: int, req: Merge, user=Depends(workspace_user)):
 
 
 business.include_router(alternatives_router)
+business.include_router(outreach_router)
 business.include_router(domestic_router)
 app.include_router(business)
 
