@@ -80,11 +80,7 @@ const selectedTitle = computed(() => {
 });
 </script>
 <template>
-  <section class="buyer-analytics" aria-labelledby="portfolio-heading">
-    <div class="analytics-heading">
-      <h2 id="portfolio-heading">客户经营统计</h2>
-      <a href="#companies">查看客户档案 <Icon name="chevron" size="sm" /></a>
-    </div>
+  <div class="buyer-analytics">
     <div class="customer-kpis">
       <button
         v-for="(g, i) in stats.kpis"
@@ -317,30 +313,11 @@ const selectedTitle = computed(() => {
         </p>
       </div>
     </dialog>
-  </section>
+  </div>
 </template>
 <style scoped>
 .buyer-analytics {
-  margin: 20px 0 25px;
   min-width: 0;
-}
-.analytics-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.analytics-heading h2 {
-  font: var(--type-title-large);
-  margin: 0;
-}
-.analytics-heading a {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--blue);
-  font: var(--type-label-medium);
 }
 .customer-kpis {
   display: grid;
@@ -645,9 +622,6 @@ const selectedTitle = computed(() => {
   }
   .grade-ring {
     width: 100px;
-  }
-  .analytics-heading h2 {
-    font: var(--type-title-large);
   }
   .analytics-panels {
     gap: 12px;

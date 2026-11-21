@@ -28,6 +28,10 @@ def check_loading_states(context, url):
     try:
         with page.expect_request("**/api/inquiries"):
             page.goto(url + "/#overview")
+        expect(
+            page.get_by_role("tabpanel", name="客户经营统计").get_by_role("status")
+        ).to_be_visible()
+        page.get_by_role("tab", name="询盘跟进统计").click()
         expect(page.locator(".sk-number")).to_have_count(4)
         expect(page.locator('[data-layout="chart"]')).to_be_visible()
         expect(page.locator(".donut")).to_have_count(0)
@@ -206,6 +210,10 @@ def check_customer_statistics(context, url):
             )
         page.route("**/api/inquiries", lambda route: route.fulfill(json=rows))
         page.goto(url + "/#overview")
+        customers = page.get_by_role("tab", name="客户经营统计")
+        inquiries = page.get_by_role("tab", name="询盘跟进统计")
+        expect(customers).to_have_attribute("aria-selected", "true")
+        expect(page.get_by_role("heading", name="渠道分布")).to_be_hidden()
         for label, number in [
             ("全部客户", 4),
             ("今日新增", 1),
@@ -228,6 +236,17 @@ def check_customer_statistics(context, url):
         expect(page.get_by_role("button", name="入档时间未知 1 家 25%")).to_be_visible()
         page.set_viewport_size({"width": 390, "height": 844})
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        inquiries.click()
+        expect(page.get_by_role("tabpanel", name="询盘跟进统计")).to_be_visible()
+        expect(page.get_by_role("heading", name="优先跟进")).to_be_visible()
+        expect(page.get_by_role("heading", name="客户分级")).to_be_hidden()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        inquiries.press("ArrowLeft")
+        expect(customers).to_be_focused()
+        expect(page.get_by_label("客户分布维度")).to_have_value("procurement")
+        expect(page.get_by_role("button", name="档龄", exact=True)).to_have_attribute(
+            "aria-pressed", "true"
+        )
         page.get_by_role("button", name="今日新增 1 家，查看明细").click()
         expect(page.get_by_role("dialog").get_by_role("link")).to_contain_text(
             "统计验收企业0"
@@ -296,6 +315,7 @@ def main():
                 expect(
                     page.locator(".desktop-nav .lucide-layout-dashboard")
                 ).to_be_visible()
+                page.get_by_role("tab", name="询盘跟进统计").click()
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
@@ -310,6 +330,7 @@ def main():
                 expect(page.get_by_role("heading", name="编辑客户档案")).to_be_visible()
                 page.get_by_role("button", name="关闭", exact=True).click()
                 page.get_by_role("button", name="工作台总览").click()
+                page.get_by_role("tab", name="询盘跟进统计").click()
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
                 expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
