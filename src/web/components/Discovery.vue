@@ -141,7 +141,7 @@ onMounted(run);
         :key="c.evidence_url"
       >
         <div class="line">
-          <span class="business-mark"><icon name="building" :size="20" /></span>
+          <span class="business-mark"><icon name="building" size="md" /></span>
           <small>{{ c.country }} · {{ c.checked.slice(0, 10) }}</small>
         </div>
         <h3>{{ c.name }}</h3>
@@ -155,7 +155,7 @@ onMounted(run);
             :href="safeLink(c.evidence_url)"
             target="_blank"
             rel="noopener noreferrer"
-            >查看依据 ↗</a
+            >查看依据 <icon name="external" size="sm" /></a
           >
           <button class="ghost" @click="adopt(c)" :disabled="busy || saved(c)">
             {{ saved(c) ? "已存入档案" : "加入客户档案" }}

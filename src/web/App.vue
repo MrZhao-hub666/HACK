@@ -219,14 +219,14 @@ onUnmounted(() => {
             alt="KOOYING 冠英"
             width="119"
           />
-          <icon class="crumb-home" name="layers" :size="16" /><span
+          <icon class="crumb-home" name="layers" size="sm" /><span
             class="crumb-parent"
             >海外业务</span
           ><span class="crumb-sep">/</span><b>{{ title }}</b>
         </div>
         <div class="top-actions">
           <span class="date"
-            ><icon name="calendar" :size="15" />{{ today }}</span
+            ><icon name="calendar" size="sm" />{{ today }}</span
           >
           <button
             class="icon-btn refresh"
@@ -235,18 +235,18 @@ onUnmounted(() => {
             :disabled="refreshing"
             @click="reload(true)"
           >
-            <icon name="refresh" :size="16" />
+            <icon name="refresh" size="sm" />
           </button>
           <button
             v-if="page !== 'manual'"
             class="primary compose"
             @click="go('manual')"
           >
-            <icon name="plus" :size="16" />补录询盘
+            <icon name="plus" size="sm" />补录询盘
           </button>
         </div>
       </header>
-      <div class="content">
+      <div class="content" :key="page">
         <div v-if="failed" class="notice" role="alert">
           {{ ready ? "数据刷新失败，当前显示上次读取的结果。" : ""
           }}{{ failed }}
@@ -322,6 +322,6 @@ onUnmounted(() => {
       @company="go('companies', null, $event)"
       @reload="reload"
     />
-    <div class="toast" v-if="notice" role="status">{{ notice }}</div>
+    <Transition name="toast"><div class="toast" v-if="notice" role="status">{{ notice }}</div></Transition>
   </div>
 </template>

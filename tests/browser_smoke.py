@@ -39,6 +39,13 @@ def main():
                 page.on("pageerror", lambda err: errors.append(str(err)))
                 page.goto(url)
                 expect(page.get_by_role("heading", name="海外销售工作台")).to_be_visible()
+                heading = page.get_by_role("heading", name="海外销售工作台")
+                assert heading.evaluate("""async el => {
+                    const font = getComputedStyle(el).fontFamily;
+                    const faces = await document.fonts.load('600 16px "Noto Sans SC Variable"', el.textContent);
+                    return font.includes("Noto Sans SC Variable") && faces.length > 0;
+                }""")
+                expect(page.locator(".desktop-nav .lucide-layout-dashboard")).to_be_visible()
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 page.get_by_role("button", name="查看跟进简报").click()
@@ -90,6 +97,14 @@ def main():
                 expect(page.locator(".ticket")).to_have_count(5)
                 page.set_viewport_size({"width": 390, "height": 844})
                 expect(page.locator("h1")).to_be_visible()
+                page.emulate_media(reduced_motion="reduce")
+                menu = page.get_by_role("button", name="打开导航")
+                menu.click()
+                assert page.locator(".mobile-nav[open]").evaluate(
+                    "el => getComputedStyle(el).transitionDuration === '0s'"
+                )
+                page.keyboard.press("Escape")
+                expect(menu).to_be_focused()
                 for name in ["工作台总览", "买家发现", "客户档案", "消息补录", "渠道模拟器", "询盘收件箱"]:
                     page.get_by_role("button", name="打开导航").click()
                     page.locator(".mobile-nav").get_by_role("button", name=name).click()

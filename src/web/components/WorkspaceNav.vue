@@ -30,7 +30,7 @@ const emit = defineEmits<{
         :class="{ selected: page === n.id }"
         @click="emit('go', n.id)"
       >
-        <icon :name="n.icon" :size="18" /><span>{{ n.name }}</span>
+        <icon :name="n.icon" size="md" /><span>{{ n.name }}</span>
         <em
           v-if="n.id === 'inbox' && waiting"
           :aria-label="waiting + ' 条业务待回'"
@@ -41,8 +41,8 @@ const emit = defineEmits<{
   </nav>
   <div class="sidebar-foot">
     <button class="assistant-entry" @click="emit('brief')">
-      <span class="assistant-symbol"><icon name="spark" :size="18" /></span
-      ><b>Copilot 助手</b><icon name="chevron" :size="14" />
+      <span class="assistant-symbol"><icon name="spark" size="md" /></span
+      ><b>Copilot 助手</b><icon name="chevron" size="sm" />
     </button>
     <div class="profile">
       <span class="avatar">{{ actor.slice(-1) }}</span>

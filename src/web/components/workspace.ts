@@ -1,9 +1,10 @@
 import { channels, overnight, relevant } from "../shared";
 
+import type { IconName } from "../icons";
 import type { Channel, Filter, InquiryRow, Page } from "../types";
 export const navigation: {
   title: string;
-  pages: { id: Page; name: string; icon: string }[];
+  pages: { id: Page; name: string; icon: IconName }[];
 }[] = [
   {
     title: "工作空间",
@@ -24,13 +25,24 @@ export const navigation: {
 ];
 export const navPages = navigation.flatMap((group) => group.pages);
 export const channelStyles = {
-  messenger: { color: "#284778", icon: "bolt", tone: "navy" },
-  facebook_comment: { color: "#558ed3", icon: "message", tone: "blue" },
-  facebook_form: { color: "#9fc4ea", icon: "form", tone: "ice" },
-  wechat_kf: { color: "#ed8b31", icon: "chat", tone: "orange" },
-  wechat_comment: { color: "#ab6344", icon: "chat", tone: "orange" },
-  manual: { color: "#8997b3", icon: "pen", tone: "slate" },
-};
+  messenger: { color: "var(--channel-messenger)", icon: "bolt", tone: "navy" },
+  facebook_comment: {
+    color: "var(--channel-fb-comment)",
+    icon: "message",
+    tone: "blue",
+  },
+  facebook_form: { color: "var(--channel-fb-form)", icon: "form", tone: "ice" },
+  wechat_kf: { color: "var(--channel-wechat)", icon: "chat", tone: "orange" },
+  wechat_comment: {
+    color: "var(--channel-wechat-comment)",
+    icon: "chat",
+    tone: "orange",
+  },
+  manual: { color: "var(--channel-manual)", icon: "pen", tone: "slate" },
+} as const satisfies Record<
+  Channel,
+  { color: string; icon: IconName; tone: string }
+>;
 export const filters: Filter[] = [
   "全部",
   "未回复",

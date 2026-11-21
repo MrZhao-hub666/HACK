@@ -74,7 +74,7 @@ defineExpose({ show });
   >
     <div class="drawer-inner">
       <div class="drawer-heading">
-        <span class="assistant-symbol"><icon name="spark" :size="23" /></span>
+        <span class="assistant-symbol"><icon name="spark" size="lg" /></span>
         <div>
           <small>SALES COPILOT</small>
           <h2 id="brief-title">销售跟进简报</h2>
@@ -97,9 +97,9 @@ defineExpose({ show });
         {{ failed }}
         <button class="textbtn" @click="emit('reload')">重试</button>
       </div>
-      <template v-else-if="ready"
-        ><div class="brief-summary">
-          <small><icon name="spark" :size="14" />本地工作台摘要</small>
+      <div v-else-if="ready" :key="topic" class="brief-result">
+        <div class="brief-summary">
+          <small><icon name="spark" size="sm" />本地工作台摘要</small>
           <p>{{ summary }}</p>
         </div>
         <button
@@ -116,12 +116,12 @@ defineExpose({ show });
             ><span class="tag blue">{{ c.label }}</span></span
           >
           <span>{{ c.detail }}</span
-          ><small>{{ c.source }}<icon name="arrow" :size="14" /></small>
+          ><small>{{ c.source }}<icon name="arrow" size="sm" /></small>
         </button>
         <div v-if="!cards.length" class="empty">
           <icon name="check" />当前没有此类待办
         </div>
-      </template>
+      </div>
       <div v-else class="empty">正在读取销售数据…</div>
     </div>
   </dialog>

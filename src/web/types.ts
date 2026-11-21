@@ -1,3 +1,5 @@
+import type { IconName } from "./icons";
+
 export type Channel =
   | "messenger"
   | "facebook_comment"
@@ -125,7 +127,7 @@ export interface InquiryDetail extends Inquiry {
 export interface Metric {
   name: string;
   val: number;
-  icon: string;
+  icon: IconName;
   tone: string;
   desc: string;
   page: Page;
