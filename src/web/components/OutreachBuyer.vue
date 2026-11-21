@@ -51,7 +51,7 @@ function setDraft(value?: Draft) {
     emails.value.find((c) => c.value === value?.recipient)?.id ?? null;
 }
 setDraft(drafts.value[0]);
-async function run(fn: () => Promise<void>) {
+async function run(fn: () => Promise<void>, showFeedback = true) {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
@@ -59,6 +59,7 @@ async function run(fn: () => Promise<void>) {
     await fn();
   } catch (ex) {
     error.value = errorMessage(ex);
+    if (showFeedback) toast("采购联系或邀约操作失败", "error");
   } finally {
     busy.value = false;
   }
@@ -72,7 +73,7 @@ async function lookup(live: boolean) {
     searched.value = true;
   } else sources.value.items = r.items;
 }
-onMounted(() => run(() => lookup(false)));
+onMounted(() => run(() => lookup(false), false));
 async function contact() {
   await api(base + "/contacts", "POST", form.value);
   form.value = fresh();
@@ -153,6 +154,7 @@ async function copy() {
             run(async () => {
               await api(base + '/contacts/' + c.id, 'DELETE');
               emit('refresh');
+              toast('联系方式已移除');
             })
           "
         >

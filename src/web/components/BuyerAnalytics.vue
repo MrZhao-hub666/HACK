@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 import type { Company, InquiryRow } from "../types";
 import { clock } from "../shared";
 import Icon from "./Icon.vue";
+import BuyerRecommendations from "./BuyerRecommendations.vue";
+import { vDismissOnBackdrop } from "./dismissOnBackdrop";
 import { percent, portfolio, type BuyerGroup } from "./portfolio";
 
 const props = defineProps<{ companies: Company[]; rows: InquiryRow[] }>();
@@ -30,6 +32,10 @@ const windowDays = ref<7 | 30>(7),
   showAges = ref(false);
 const dimension = ref<"markets" | "kinds" | "procurement">("markets");
 const dimensionGroups = computed(() => stats.value[dimension.value]);
+const contactCharts = [
+  { key: "genders", title: "主联系人性别", icon: "users" },
+  { key: "contactAges", title: "主联系人年龄段", icon: "userClock" },
+] as const;
 const daily = computed(() => stats.value.days.slice(-windowDays.value));
 const periodCount = computed(() =>
   daily.value.reduce((sum, g) => sum + g.buyers.length, 0),
@@ -64,6 +70,8 @@ const selected = computed(() =>
     ...stats.value.sources,
     ...stats.value.days,
     ...stats.value.ageBands,
+    ...stats.value.genders,
+    ...stats.value.contactAges,
   ].find((g) => g.key === selection.value),
 );
 function inspect(g: BuyerGroup) {
@@ -76,6 +84,8 @@ const selectedTitle = computed(() => {
   if (group.key.startsWith("grade:") && group.label !== "待评级")
     return group.label + " 级客户";
   if (group.key.startsWith("date:")) return group.label + " 入档客户";
+  if (group.key.startsWith("contact-gender:")) return "主联系人性别 · " + group.label;
+  if (group.key.startsWith("contact-age:")) return "主联系人年龄段 · " + group.label;
   return group.label;
 });
 </script>
@@ -97,6 +107,7 @@ const selectedTitle = computed(() => {
       </button>
     </div>
     <div class="analytics-panels">
+      <BuyerRecommendations class="analytics-recommendations" />
       <section class="panel">
         <div class="panelhead">
           <div class="sect">
@@ -286,9 +297,41 @@ const selectedTitle = computed(() => {
           </button>
         </div>
       </section>
+      <section
+        v-for="chart in contactCharts"
+        :key="chart.key"
+        class="panel contact-chart"
+        :aria-labelledby="'contact-chart-' + chart.key"
+      >
+        <div class="panelhead">
+          <div class="sect">
+            <Icon :name="chart.icon" class="heading-icon" />
+            <h2 :id="'contact-chart-' + chart.key">{{ chart.title }}</h2>
+          </div>
+          <small>按客户档案</small>
+        </div>
+        <div class="plot-body">
+          <p v-if="!total" class="empty">暂无客户联系人可统计</p>
+          <button
+            v-for="g in stats[chart.key]"
+            :key="g.key"
+            class="bar-item"
+            :class="{ 'unrecorded-bar': g.label === '未登记' }"
+            @click="inspect(g)"
+          >
+            <span>{{ g.label }}</span>
+            <span class="bar-track" aria-hidden="true">
+              <i :style="{ width: percent(g.buyers.length, total) }" />
+            </span>
+            <b>{{ g.buyers.length }} 家</b>
+            <small>{{ percent(g.buyers.length, total) }}</small>
+          </button>
+        </div>
+      </section>
     </div>
     <dialog
       ref="dialog"
+      v-dismiss-on-backdrop
       class="dialogwrap"
       aria-labelledby="analytics-detail-title"
     >
@@ -387,6 +430,9 @@ const selectedTitle = computed(() => {
   margin: 0;
   min-width: 0;
 }
+.analytics-recommendations {
+  grid-column: 1 / -1;
+}
 .plot-body {
   padding: 16px 20px;
 }
@@ -429,6 +475,12 @@ const selectedTitle = computed(() => {
 }
 .origin-plot .bar-track i {
   background: #4b9187;
+}
+.contact-chart .bar-item {
+  grid-template-columns: minmax(87px, 1fr) minmax(30px, 1.65fr) auto 49px;
+}
+.contact-chart .unrecorded-bar .bar-track i {
+  background: #9daabb;
 }
 .plot-more,
 .undated {

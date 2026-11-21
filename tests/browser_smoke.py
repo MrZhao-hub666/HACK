@@ -14,7 +14,6 @@ from playwright.sync_api import sync_playwright, expect
 from src.api.main import app
 from src.api.accounts import create_account, encode_password
 from src.api.db import database
-from src.api.domestic import examples as seed_domestic_examples
 
 
 def check_loading_states(context, url):
@@ -117,7 +116,8 @@ def check_alternative_buyers(page):
     expect(cards).to_have_count(1)
     cards.first.get_by_role("button", name="不相关").click()
     expect(brief).to_contain_text("暂无待处理推荐")
-    brief.get_by_role("button", name="关闭简报").click()
+    page.mouse.click(12, 100)
+    expect(brief).to_be_hidden()
     page.set_viewport_size({"width": 1440, "height": 1000})
     expect(panel.locator(".alternative-card")).to_have_count(1)
     expect(panel).to_contain_text("已采纳")
@@ -200,6 +200,8 @@ def check_customer_statistics(context, url):
                 won_at=d if i == 1 else None,
                 owner="销售" if i == 2 else "",
                 source="广交会" if i < 2 else "销售录入",
+                contact_gender="女" if i < 2 else "",
+                contact_age_band="35-44" if i == 0 else "",
             )
             for i, d in enumerate(dates)
         ]
@@ -214,6 +216,10 @@ def check_customer_statistics(context, url):
         customers = page.get_by_role("tab", name="客户经营统计")
         inquiries = page.get_by_role("tab", name="询盘跟进统计")
         expect(customers).to_have_attribute("aria-selected", "true")
+        recommendation_card = page.get_by_role(
+            "tabpanel", name="客户经营统计"
+        ).get_by_role("region", name="潜在客户推荐")
+        expect(recommendation_card).to_be_visible()
         expect(page.get_by_role("heading", name="渠道分布")).to_be_hidden()
         for label, number in [
             ("全部客户", 4),
@@ -236,9 +242,20 @@ def check_customer_statistics(context, url):
         page.get_by_role("button", name="档龄", exact=True).click()
         expect(page.get_by_role("button", name="入档时间未知 1 家 25%")).to_be_visible()
         page.set_viewport_size({"width": 390, "height": 844})
+        gender = page.get_by_role("region", name="主联系人性别")
+        age = page.get_by_role("region", name="主联系人年龄段")
+        expect(gender.get_by_role("button", name="女 2 家 50%")).to_be_visible()
+        expect(gender.get_by_role("button", name="未登记 2 家 50%")).to_be_visible()
+        expect(age.get_by_role("button", name="未登记 3 家 75%")).to_be_visible()
+        age.get_by_role("button", name="35–44 岁 1 家 25%").click()
+        breakdown = page.get_by_role("dialog", name="主联系人年龄段 · 35–44 岁")
+        expect(breakdown.get_by_role("link")).to_contain_text("统计验收企业0")
+        page.mouse.click(2, 2)
+        expect(breakdown).to_be_hidden()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         inquiries.click()
         expect(page.get_by_role("tabpanel", name="询盘跟进统计")).to_be_visible()
+        expect(recommendation_card).to_be_hidden()
         expect(page.get_by_role("heading", name="优先跟进")).to_be_visible()
         expect(page.get_by_role("heading", name="客户分级")).to_be_hidden()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
@@ -263,6 +280,64 @@ def check_customer_statistics(context, url):
         page.close()
 
 
+def check_recommendation_markdown(context, url):
+    page = context.new_page()
+    page.set_viewport_size({"width": 390, "height": 844})
+    try:
+        page.route(
+            "**/api/discovery/recommendations",
+            lambda route: route.fulfill(json={
+                "configured": False, "auto_due": False, "directions": [],
+                "items": [{
+                    "id": "formatting", "title": "证据排版验收", "market": "",
+                    "source": "实时网页搜索", "grade": "B", "direction": "经销进口",
+                    "reason": "业务证据", "url": "https://example.com/about", "published": "",
+                    "evidence": (
+                        "## Company overview\n\n- **Truck parts**\n\n"
+                        "| Part | Type |\n| --- | --- |\n| Pads | Brake |\n\n"
+                        "|First excerpt|\n\n|Second excerpt|\n\n"
+                        "[Products](/parts) · [Email](mailto:sales@example.com)\n\n"
+                        "<button>外部 HTML</button>"
+                    ),
+                }],
+            }),
+        )
+        page.goto(url + "/#overview")
+        recommendation = page.get_by_role("button", name=re.compile("证据排版验收"))
+        recommendation.click()
+        popup = page.get_by_role("dialog", name="证据排版验收")
+        expect(popup.get_by_role("heading", name="Company overview", level=3)).to_be_visible()
+        expect(popup.locator("li strong")).to_have_text("Truck parts")
+        expect(popup.get_by_role("columnheader", name="Part")).to_be_visible()
+        expect(popup.get_by_role("cell", name="Second excerpt")).to_be_visible()
+        expect(popup.get_by_role("link", name="Products")).to_have_attribute(
+            "href", "https://example.com/parts"
+        )
+        expect(popup.get_by_role("link", name="Email")).to_have_count(0)
+        expect(popup.get_by_text("<button>外部 HTML</button>", exact=True)).to_be_visible()
+        expect(popup.get_by_role("link", name="查看原文")).to_have_attribute(
+            "href", "https://example.com/about"
+        )
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.keyboard.press("Escape")
+        expect(popup).to_be_hidden()
+        recommendation.click()
+        heading = popup.get_by_role("heading", name="Company overview", level=3)
+        heading.click()
+        expect(popup).to_be_visible()
+        bounds = heading.bounding_box()
+        page.mouse.move(bounds["x"] + 5, bounds["y"] + 5)
+        page.mouse.down()
+        page.mouse.move(2, 2)
+        page.mouse.up()
+        expect(popup).to_be_visible()
+        page.mouse.click(2, 2)
+        expect(popup).to_be_hidden()
+        expect(recommendation).to_be_focused()
+    finally:
+        page.close()
+
+
 def check_domestic(page):
     expect(page.get_by_role("button", name="国内线索", exact=True)).to_have_count(0)
     page.get_by_role("button", name="买家发现", exact=True).click()
@@ -272,30 +347,13 @@ def check_domestic(page):
     search = page.get_by_role("button", name="搜索线索", exact=True)
     expect(search).to_be_enabled()
     page.get_by_role("textbox", name="关键词", exact=True).fill("刹车片")
-    with page.expect_response(lambda res: "/api/domestic/signals?" in res.url) as response:
+    with page.expect_response("**/api/domestic/searches") as response:
         search.click()
-    assert response.value.ok and response.value.json()["total"] == 0
-    expect(page.get_by_role("status").filter(has_text="尚未接入渠道数据")).to_be_visible()
-
-    seed_domestic_examples()
-    page.get_by_role("textbox", name="关键词", exact=True).fill("")
-    search.click()
-    cards = page.locator(".domestic-card")
-    expect(cards).to_have_count(2)
-    expect(cards.filter(has_text="80 套")).to_contain_text("重卡刹车片")
-    page.get_by_role("textbox", name="关键词", exact=True).fill("29087")
-    page.get_by_role("button", name="搜索线索").click()
-    expect(cards).to_have_count(1)
-    expect(cards.first).to_contain_text("小红书")
-    expect(page.get_by_role("status").filter(has_text="找到 1 条线索")).to_be_visible()
-    page.get_by_role("textbox", name="关键词", exact=True).fill("ZZZ-无匹配-987654")
-    search.click()
-    expect(page.get_by_role("status").filter(has_text="未找到匹配线索")).to_be_visible()
-    expect(cards).to_have_count(0)
-    page.get_by_role("textbox", name="关键词", exact=True).fill("")
-    page.get_by_label("内容意图").select_option("供应推广")
-    page.get_by_role("button", name="搜索线索").click()
-    expect(cards.first).to_contain_text("厂家直销")
+    assert response.value.status == 503
+    assert response.value.request.method == "POST"
+    assert response.value.request.post_data_json["q"] == "刹车片"
+    expect(page.get_by_role("alert")).to_contain_text("尚未配置 MediaCrawler")
+    expect(page.locator(".domestic-card")).to_have_count(0)
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.set_viewport_size({"width": 1440, "height": 1000})
@@ -307,6 +365,9 @@ def main():
         os.environ.update(
             DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
         )
+        os.environ.pop("ADMIN_BOOTSTRAP_PASSWORD_HASH", None)
+        os.environ.pop("EXA_API_KEY", None)
+        os.environ.pop("BRAVE_API_KEY", None)
         os.environ.pop("LLM_API_KEY", None)
         os.environ.pop("MEDIACRAWLER_URL", None)
         sock = socket.socket()
@@ -361,16 +422,25 @@ def main():
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
                 check_customer_statistics(context, url)
+                check_recommendation_markdown(context, url)
                 check_domestic(page)
-                page.get_by_role("button", name="查看跟进简报").click()
+                open_brief = page.get_by_role("button", name="查看跟进简报")
+                open_brief.click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")
                 expect(brief.locator(".brief-card")).to_have_count(4)
                 brief.get_by_role("button", name="我的交接", exact=True).click()
                 expect(brief).to_contain_text("林悦名下有 0 条未结束的询盘")
+                page.mouse.click(12, 100)
+                expect(brief).to_be_hidden()
+                open_brief.click()
+                expect(brief.get_by_role("button", name="优先跟进")).to_have_attribute("aria-pressed", "true")
                 brief.get_by_role("button", name="客户核实", exact=True).click()
                 brief.locator(".brief-card").first.click()
-                expect(page.get_by_role("heading", name="编辑客户档案")).to_be_visible()
-                page.get_by_role("button", name="关闭", exact=True).click()
+                editor = page.get_by_role("dialog", name="编辑客户档案")
+                expect(editor).to_be_visible()
+                page.mouse.click(2, 2)
+                expect(editor).to_be_hidden()
+                expect(page).to_have_url(url + "/#companies")
                 page.get_by_role("button", name="工作台总览").click()
                 page.get_by_role("tab", name="询盘跟进统计").click()
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
@@ -379,6 +449,38 @@ def main():
                 check_alternative_buyers(page)
                 check_outreach(page)
                 page.get_by_role("button", name="买家发现", exact=True).click()
+                expect(page.locator(".companycard")).to_have_count(3)
+                page.set_viewport_size({"width": 390, "height": 844})
+                market = page.get_by_role("combobox", name="目标市场", exact=True)
+                source = page.get_by_role("combobox", name="数据来源", exact=True)
+                expect(market).to_have_value("马来西亚")
+                for region, country in (
+                    ("欧洲", "德国"),
+                    ("北美洲", "美国"),
+                    ("南美洲", "巴西"),
+                ):
+                    expect(
+                        market.locator(
+                            f'optgroup[label="{region}"] option[value="{country}"]'
+                        )
+                    ).to_have_count(1)
+                    expect(market.locator(f'option[value="{region}"]')).to_have_count(0)
+                market.select_option("德国")
+                search = page.get_by_role("button", name="搜索企业")
+                search.click()
+                expect(page.get_by_text("没有匹配的企业", exact=False)).to_be_visible()
+                source.select_option("live")
+                market.select_option("")
+                page.get_by_label("自定义市场", exact=True).fill("Rotterdam")
+                with page.expect_request("**/api/discovery/search") as request:
+                    search.click()
+                assert request.value.post_data_json["market"] == "Rotterdam"
+                expect(page.get_by_role("alert")).to_contain_text("EXA_API_KEY")
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                page.set_viewport_size({"width": 1440, "height": 1000})
+                source.select_option("samples")
+                market.select_option("马来西亚")
+                search.click()
                 expect(page.locator(".companycard")).to_have_count(3)
                 card = page.locator(".companycard").filter(has_text="Swee Siang")
                 card.get_by_role("button", name="加入客户档案").click()
@@ -389,8 +491,33 @@ def main():
                 page.get_by_label("本企业采购能力", exact=True).select_option(
                     "可直接采购"
                 )
+                page.get_by_label("主联系人性别", exact=True).select_option("女")
+                page.get_by_label("主联系人年龄段", exact=True).select_option("35-44")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.route(
+                    "**/api/companies/*",
+                    lambda route: route.fulfill(status=409, json={"detail": "档案信息有冲突"}),
+                    times=1,
+                )
                 page.get_by_role("button", name="保存档案").click()
+                error_toast = editor.locator(".toast-error")
+                expect(error_toast).to_have_text("客户档案保存失败")
+                expect(editor.get_by_role("alert")).to_have_text("档案信息有冲突")
+                assert error_toast.evaluate("el => {const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth}")
+                page.get_by_role("button", name="保存档案").click()
+                expect(page.locator("body > .toast-success")).to_have_text("客户档案已保存")
+                expect(editor).to_be_hidden()
                 expect(card).to_contain_text("可直接采购")
+                page.set_viewport_size({"width": 1440, "height": 1000})
+                card.get_by_role("button", name="编辑档案").click()
+                expect(page.get_by_label("主联系人性别", exact=True)).to_have_value("女")
+                expect(page.get_by_label("主联系人年龄段", exact=True)).to_have_value("35-44")
+                page.get_by_label("企业名称", exact=True).fill("未保存的名称")
+                page.mouse.click(2, 2)
+                expect(editor).to_be_hidden()
+                card.get_by_role("button", name="编辑档案").click()
+                expect(page.get_by_label("企业名称", exact=True)).not_to_have_value("未保存的名称")
+                editor.get_by_role("button", name="关闭", exact=True).click()
                 page.get_by_role("button", name="渠道模拟器", exact=True).click()
                 for provider in (
                     "WhatsApp 商业号码",
@@ -439,6 +566,11 @@ def main():
                 )
                 page.keyboard.press("Escape")
                 expect(menu).to_be_focused()
+                menu.click()
+                mobile_nav = page.get_by_role("dialog", name="工作台导航")
+                expect(mobile_nav).to_be_visible()
+                page.mouse.click(350, 100)
+                expect(mobile_nav).to_be_hidden()
                 for name in [
                     "工作台总览",
                     "买家发现",
@@ -457,13 +589,21 @@ def main():
                     ), name
                 page.get_by_role("button", name="打开导航").click()
                 page.get_by_role("button", name="我的账号与团队").click()
-                page.get_by_role("button", name="成员管理").click()
+                account = page.get_by_role("dialog", name="账号与团队")
+                account.get_by_role("button", name="成员管理").click()
+                page.mouse.click(2, 2)
+                expect(account).to_be_hidden()
+                menu.click()
+                page.get_by_role("button", name="我的账号与团队").click()
+                expect(account.get_by_role("button", name="我的账号")).to_have_attribute("aria-pressed", "true")
+                account.get_by_role("button", name="成员管理").click()
                 page.get_by_role("button", name="添加成员").click()
                 page.get_by_label("登录账号").fill("new.sales")
                 page.get_by_label("成员姓名").fill("新成员")
                 page.get_by_label("临时密码").fill("Temporary-new-member")
                 page.get_by_role("button", name="创建成员").click()
                 expect(page.locator(".member-list")).to_contain_text("new.sales")
+                expect(account.locator(".toast-success")).to_have_text("成员已创建")
                 page.get_by_role("button", name="我的账号", exact=True).click()
                 page.get_by_role("button", name="退出登录").click()
                 expect(page.get_by_role("heading", name="登录工作台")).to_be_visible()

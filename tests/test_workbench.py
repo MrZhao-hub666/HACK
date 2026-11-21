@@ -80,10 +80,87 @@ def test_live_provider(client, monkeypatch):
         )
 
     monkeypatch.setattr(prospects.httpx, "get", get)
-    out = client.post(
-        "/api/discovery/search", json={"market": "巴西", "kind": "车队", "mode": "live"}
-    ).json()
-    assert "Brazil" in calls[0] and out["items"][0]["source"] == "实时网页搜索"
+    for market, query_market in (
+        ("巴西", "Brazil"),
+        ("德国", "Germany"),
+        ("美国", "United States"),
+        ("印尼", "Indonesia"),
+        ("Rotterdam", "Rotterdam"),
+    ):
+        out = client.post(
+            "/api/discovery/search",
+            json={"market": market, "kind": "车队", "mode": "live"},
+        ).json()
+        assert calls[-1].startswith(f"{query_market} haulage fleet")
+        assert out["items"][0]["source"] == "实时网页搜索"
+        assert out["items"][0]["country"] == market
+
+
+def test_live_provider_empty_and_failure(client, monkeypatch):
+    import httpx
+
+    monkeypatch.setenv("BRAVE_API_KEY", "dummy")
+    payload = {"market": "加拿大", "kind": "车队", "mode": "live"}
+    for status, expected in ((200, 200), (429, 502)):
+        monkeypatch.setattr(
+            prospects.httpx,
+            "get",
+            lambda url, **kw: httpx.Response(
+                status, request=httpx.Request("GET", url), json={"web": {"results": []}}
+            ),
+        )
+        result = client.post("/api/discovery/search", json=payload)
+        assert result.status_code == expected
+        if expected == 200:
+            assert result.json()["items"] == []
+        else:
+            assert result.json()["detail"] == "实时搜索服务不可用，请稍后重试。"
+
+
+def test_exa_live_search(client, monkeypatch):
+    import httpx
+
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    assert client.get("/api/config").json()["live_search"]
+    monkeypatch.setenv("BRAVE_API_KEY", "test-brave")
+    requests = []
+
+    def search(url, *, json, headers, timeout):
+        assert url == "https://api.exa.ai/search"
+        assert headers == {"x-api-key": "test-exa"}
+        requests.append(json)
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "results": [
+                    {
+                        "title": "Commercial Vehicle Service",
+                        "url": "https://example.org/service",
+                        "highlights": ["Heavy truck repair workshop", "Brake service"],
+                    },
+                    {"url": "ftp://example.org", "title": "Unsupported URL"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(prospects.httpx, "post", search)
+    result = client.post(
+        "/api/discovery/search", json={"market": "德国", "kind": "维修厂", "mode": "live"}
+    )
+    assert requests == [
+        {
+            "query": "Germany heavy truck brake repair workshop",
+            "numResults": 10,
+            "contents": {"highlights": True},
+        }
+    ]
+    items = result.json()["items"]
+    assert len(items) == 1
+    assert items[0]["evidence"] == "Heavy truck repair workshop\nBrake service"
+    assert items[0]["procurement"] == "待核实"
+    prospects.public_search("brake repair", domains=("example.org/service",))
+    assert requests[-1]["includeDomains"] == ["example.org/service"]
 
 
 def test_idempotency_and_handoff(client):

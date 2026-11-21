@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import Icon from "./Icon.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
 import AlternativeCard from "./AlternativeCard.vue";
-import { api, errorMessage, stamp } from "../shared";
+import { api, errorMessage, stamp, toast } from "../shared";
 import type { AlternativeBatch, Company, InquiryDetail } from "../types";
 
 const props = defineProps<{
@@ -42,6 +42,7 @@ async function search() {
     emit("changed", result);
   } catch (err) {
     error.value = errorMessage(err);
+    toast("替代买家搜索失败", "error");
   } finally {
     busy.value = false;
   }

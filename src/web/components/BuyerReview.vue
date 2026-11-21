@@ -39,6 +39,7 @@ async function save() {
     emit("saved", result.company_id);
   } catch (ex) {
     error.value = errorMessage(ex);
+    toast("核实记录保存失败", "error");
   } finally {
     busy.value = false;
   }
@@ -62,6 +63,7 @@ async function analyze() {
       r.engine + " · 建议 " + r.fit + " 级。" + r.reason + " 保存前可修正。";
   } catch (ex) {
     error.value = errorMessage(ex);
+    toast("线索分析失败", "error");
   } finally {
     busy.value = false;
   }

@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from "vue";
 import {
   api,
+  contactAgeBands,
+  contactGenders,
   errorMessage,
   kinds,
   purchases,
@@ -10,7 +12,8 @@ import {
   safeLink,
 } from "../shared";
 import Icon from "./Icon.vue";
-import type { Company, CompanyFields } from "../types";
+import { vDismissOnBackdrop } from "./dismissOnBackdrop";
+import type { Company, CompanyFields, ContactProfile } from "../types";
 
 const props = defineProps<{
   companies: Company[];
@@ -27,6 +30,7 @@ const q = ref(""),
   editor = ref<HTMLDialogElement | null>(null),
   error = ref(""),
   form = ref(blankCompany()),
+  contactProfile = ref<ContactProfile>({ contact_gender: "", contact_age_band: "" }),
   busy = ref(false);
 const filtered = computed(() =>
   props.companies.filter(
@@ -43,6 +47,10 @@ function start(c?: Company) {
   owner.value = c?.owner || "";
   originalDeal.value = deal.value = Boolean(c?.won_at);
   form.value = blankCompany();
+  contactProfile.value = {
+    contact_gender: c?.contact_gender ?? "",
+    contact_age_band: c?.contact_age_band ?? "",
+  };
   if (c)
     for (const key of Object.keys(form.value) as (keyof CompanyFields)[])
       form.value[key] = c[key];
@@ -53,17 +61,21 @@ async function save() {
   busy.value = true;
   error.value = "";
   try {
+    const fields = { ...form.value, ...contactProfile.value };
     await api(
       id.value ? "/companies/" + id.value : "/companies",
       id.value ? "PUT" : "POST",
-      id.value ? { ...form.value, owner: owner.value,
-        ...(deal.value !== originalDeal.value ? {confirmed_deal: deal.value} : {}) } : form.value,
+      id.value
+        ? { ...fields, owner: owner.value,
+            ...(deal.value !== originalDeal.value ? { confirmed_deal: deal.value } : {}) }
+        : fields,
     );
     editor.value?.close();
     emit("reload");
     toast("客户档案已保存");
   } catch (e) {
     error.value = errorMessage(e);
+    toast("客户档案保存失败", "error");
   } finally {
     busy.value = false;
   }
@@ -155,6 +167,7 @@ onMounted(() => {
   </div>
   <dialog
     ref="editor"
+    v-dismiss-on-backdrop
     class="dialogwrap"
     aria-labelledby="company-edit-title"
     @close="emit('dismiss')"
@@ -211,6 +224,24 @@ onMounted(() => {
           maxlength="350"
           placeholder="公司邮箱、业务电话或视频号名称"
       /></label>
+      <div class="fields">
+        <label>
+          主联系人性别
+          <select v-model="contactProfile.contact_gender" aria-label="主联系人性别">
+            <option v-for="(label, value) in contactGenders" :key="value" :value="value">
+              {{ label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          主联系人年龄段
+          <select v-model="contactProfile.contact_age_band" aria-label="主联系人年龄段">
+            <option v-for="(label, value) in contactAgeBands" :key="value" :value="value">
+              {{ label }}
+            </option>
+          </select>
+        </label>
+      </div>
       <label class="inputlabel"
         >业务证据<textarea v-model="form.evidence" rows="2"></textarea>
       </label>

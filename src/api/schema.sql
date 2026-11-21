@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS companies (
  kind TEXT NOT NULL DEFAULT '待识别', procurement TEXT NOT NULL DEFAULT '待核实',
  website TEXT NOT NULL DEFAULT '', social TEXT NOT NULL DEFAULT '', domain TEXT NOT NULL DEFAULT '',
  contact TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',
+ contact_gender TEXT NOT NULL DEFAULT '', contact_age_band TEXT NOT NULL DEFAULT '',
  evidence TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '',
  source TEXT NOT NULL, checked TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0,
  reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
@@ -101,3 +102,15 @@ CREATE TABLE IF NOT EXISTS domestic_signals (
  UNIQUE(platform,kind,external_id,demo)
 );
 CREATE INDEX IF NOT EXISTS domestic_published ON domestic_signals(published DESC,id DESC);
+CREATE TABLE IF NOT EXISTS domestic_search_imports (
+ id TEXT PRIMARY KEY, record_count INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS domestic_search_results (
+ search_id TEXT NOT NULL REFERENCES domestic_search_imports(id),
+ signal_id INTEGER NOT NULL REFERENCES domestic_signals(id),
+ PRIMARY KEY(search_id,signal_id)
+);
+CREATE TABLE IF NOT EXISTS discovery_recommendations (
+ id INTEGER PRIMARY KEY CHECK(id=1), attempted INTEGER NOT NULL, expires INTEGER NOT NULL,
+ items TEXT NOT NULL DEFAULT '[]', updated TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
+);

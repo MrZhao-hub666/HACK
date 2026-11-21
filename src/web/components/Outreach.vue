@@ -60,7 +60,7 @@ async function refresh() {
   data.value = await api<OutreachData>("/outreach");
   initialized.value = true;
 }
-async function act(fn: () => Promise<void>) {
+async function act(fn: () => Promise<void>, failureMessage = "") {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
@@ -68,6 +68,7 @@ async function act(fn: () => Promise<void>) {
     await fn();
   } catch (e) {
     error.value = errorMessage(e);
+    if (failureMessage) toast(failureMessage, "error");
   } finally {
     busy.value = false;
   }
@@ -129,6 +130,7 @@ async function enter() {
   if (!capture.value) return;
   const item = await api<Evidence>("/outreach/evidence", "POST", capture.value);
   capture.value = null;
+  toast("展会线索已登记");
   await refresh();
   openReview(item.id);
 }
@@ -199,7 +201,7 @@ watch(
     <template v-if="tab === '检索来源'">
       <div class="panel formpad">
         <h2>查找展会买家与原帖</h2>
-        <form @submit.prevent="act(lookup)">
+        <form @submit.prevent="act(lookup, '展会线索检索失败')">
           <fieldset :disabled="busy">
             <div class="fields">
               <label
@@ -256,7 +258,7 @@ watch(
           class="out-details"
         >
           <summary>导入本届买家 CSV</summary>
-          <form @submit.prevent="act(importFile)">
+          <form @submit.prevent="act(importFile, '买家名单导入操作失败')">
             <p>
               使用有权导入的 UTF-8
               CSV。必填表头为「企业名称」「来源链接」，可选「市场」「来源说明」。每批最多
@@ -286,7 +288,7 @@ watch(
         v-if="capture"
         id="outreach-capture"
         class="panel formpad"
-        @submit.prevent="act(enter)"
+        @submit.prevent="act(enter, '展会线索登记操作失败')"
       >
         <h2>登记待核实来源</h2>
         <div class="fields">

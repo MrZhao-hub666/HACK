@@ -6,6 +6,7 @@ import httpx
 from fastapi import HTTPException
 
 from .db import one, utc
+from .markets import DISCOVERY_MARKET_TERMS
 
 SAMPLES = [
     dict(
@@ -123,19 +124,47 @@ def samples():
     ]
 
 
-def public_search(query):
-    key = os.getenv("BRAVE_API_KEY")
-    if not key:
-        raise HTTPException(503, "实时搜索需要配置 BRAVE_API_KEY。")
+def search_credentials():
+    for provider, variable in (("exa", "EXA_API_KEY"), ("brave", "BRAVE_API_KEY")):
+        if key := os.getenv(variable, "").strip():
+            return provider, key
+    return None
+
+
+def public_search(query, *, domains=()):
+    credentials = search_credentials()
+    if not credentials:
+        raise HTTPException(503, "实时搜索需要配置 EXA_API_KEY 或 BRAVE_API_KEY。")
+    provider, key = credentials
     try:
-        r = httpx.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": 12, "text_decorations": "false"},
-            headers={"X-Subscription-Token": key},
-            timeout=10,
-        )
-        r.raise_for_status()
-        results = r.json().get("web", {}).get("results", [])
+        if provider == "exa":
+            payload = {
+                "query": query,
+                "numResults": 10,
+                "contents": {"highlights": True},
+            }
+            if domains:
+                payload["includeDomains"] = list(domains)
+            response = httpx.post(
+                "https://api.exa.ai/search",
+                json=payload,
+                headers={"x-api-key": key},
+                timeout=10,
+            )
+            response.raise_for_status()
+            results = response.json().get("results")
+        else:
+            if domains:
+                scope = " OR ".join(f"site:{domain}" for domain in domains)
+                query = f"({scope}) {query}" if len(domains) > 1 else f"{scope} {query}"
+            response = httpx.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": 12, "text_decorations": "false"},
+                headers={"X-Subscription-Token": key},
+                timeout=10,
+            )
+            response.raise_for_status()
+            results = response.json().get("web", {}).get("results", [])
         if not isinstance(results, list):
             raise ValueError("invalid results")
     except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
@@ -144,25 +173,31 @@ def public_search(query):
     for hit in results:
         if not isinstance(hit, dict):
             continue
-        url = str(hit.get("url", ""))
+        url = str(hit.get("url") or "")
         if not url or len(url) > 1400:
             continue
         try:
             valid_url(url)
         except HTTPException:
             continue
+        description = hit.get("description") or ""
+        highlights = hit.get("highlights")
+        if provider == "exa" and isinstance(highlights, list):
+            description = "\n".join(part for part in highlights if isinstance(part, str))
         items.append(
             {
-                "title": str(hit.get("title", ""))[:200],
+                "title": str(hit.get("title") or "")[:200],
                 "url": url,
-                "description": str(hit.get("description", ""))[:1500],
+                "description": str(description)[:1500],
             }
         )
     return items
 
 
 def discover(request):
-    market = MARKETS.get(request.market, request.market)
+    market = DISCOVERY_MARKET_TERMS.get(request.market) or MARKETS.get(
+        request.market, request.market
+    )
     query = f"{market} {BUYER_TERMS[request.kind]} {request.keywords}".strip()
     if request.mode == "samples":
         result = []

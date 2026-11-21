@@ -88,3 +88,25 @@ def test_outreach_summary_counts_records_companies_and_drafts_separately(client)
         "linked_buyers": 1,
         "drafts": 1,
     }
+
+
+def test_contact_profile_defaults_and_survives_older_client_updates(client):
+    company = {"name": "Profile fleet", "country": "泰国"}
+    buyer = client.post("/api/companies", json=company).json()
+    with database(True) as db:
+        for column in ("contact_gender", "contact_age_band"):
+            db.execute(f"ALTER TABLE companies DROP COLUMN {column}")
+    initialize()
+    initialize()
+
+    path = f"/api/companies/{buyer['id']}"
+    record = client.put(path, json=company).json()
+    assert record["contact_gender"] == record["contact_age_band"] == ""
+    profile = {"contact_gender": "女", "contact_age_band": "35-44"}
+    client.put(path, json={**company, **profile}).raise_for_status()
+    client.post("/api/companies", json=company).raise_for_status()
+    record = client.put(path, json={**company, "notes": "历史客户端"}).json()
+    assert {key: record[key] for key in profile} == profile
+    assert client.put(path, json={**company, "contact_age_band": "middle"}).status_code == 422
+    record = client.put(path, json={**company, "contact_age_band": ""}).json()
+    assert record["contact_gender"] == "女" and record["contact_age_band"] == ""

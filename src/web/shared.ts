@@ -1,5 +1,5 @@
-import { ref } from "vue";
-import type { Channel, CompanyFields, InquiryRow } from "./types";
+import { computed, ref } from "vue";
+import type { Channel, CompanyFields, ContactProfile, InquiryRow } from "./types";
 export const channels: Record<Channel, string> = {
   dy: "抖音评论",
   xhs: "小红书评论",
@@ -29,6 +29,22 @@ export const kinds = [
 ];
 export const states = ["待处理", "跟进中", "等客户补充", "已结束"];
 export const purchases = ["待核实", "可直接采购", "委托采购", "仅转售"];
+export const contactGenders: Record<ContactProfile["contact_gender"], string> = {
+  女: "女",
+  男: "男",
+  其他: "其他",
+  不便透露: "不便透露",
+  "": "未登记",
+};
+export const contactAgeBands: Record<ContactProfile["contact_age_band"], string> = {
+  under25: "24 岁及以下",
+  "25-34": "25–34 岁",
+  "35-44": "35–44 岁",
+  "45-54": "45–54 岁",
+  "55-64": "55–64 岁",
+  "65+": "65 岁及以上",
+  "": "未登记",
+};
 export const clock = ref(Date.now());
 export const stamp = (s?: string | null) =>
   s
@@ -105,12 +121,18 @@ export const blankCompany = (): CompanyFields => ({
   notes: "",
   next_action: "",
 });
-export const notify = ref("");
+export type ToastTone = "success" | "info" | "warning" | "error";
+const notification = ref<{ message: string; tone: ToastTone } | null>(null);
+export const notify = computed(() => notification.value);
 let notificationTimer: ReturnType<typeof setTimeout>;
-export function toast(message: string) {
-  notify.value = message;
+export function clearToast() {
   clearTimeout(notificationTimer);
-  notificationTimer = setTimeout(() => (notify.value = ""), 4800);
+  notification.value = null;
+}
+export function toast(message: string, tone: ToastTone = "success") {
+  clearTimeout(notificationTimer);
+  notification.value = { message, tone };
+  notificationTimer = setTimeout(clearToast, tone === "warning" || tone === "error" ? 7000 : 4800);
 }
 export function safeLink(url: string) {
   try {

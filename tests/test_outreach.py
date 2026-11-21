@@ -120,7 +120,13 @@ def test_posts_by_permalink_raw_content_and_failure(client, monkeypatch):
     hits.append(
         {"url": "https://x.com/seller", "title": "Profile", "description": "Sell parts"}
     )
-    monkeypatch.setattr(outreach.prospects, "public_search", lambda _: hits)
+
+    def search(query, *, domains):
+        assert query == "brake"
+        assert "x.com" in domains and "linkedin.com/posts" in domains
+        return hits
+
+    monkeypatch.setattr(outreach.prospects, "public_search", search)
     results = client.post(
         BASE + "/search",
         json={"source": "社媒原帖", "mode": "live", "keywords": "brake"},

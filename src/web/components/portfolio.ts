@@ -1,4 +1,5 @@
 import type { Company, InquiryRow } from "../types";
+import { contactAgeBands, contactGenders } from "../shared";
 
 export interface BuyerGroup {
   key: string;
@@ -155,6 +156,18 @@ export function portfolio(
       "待评级",
     ]),
     sources: groupBy(buyers, "source:", (c) => c.source || "来源未登记"),
+    genders: groupBy(
+      buyers,
+      "contact-gender:",
+      (c) => contactGenders[c.contact_gender ?? ""],
+      Object.values(contactGenders),
+    ).filter((g) => g.buyers.length),
+    contactAges: groupBy(
+      buyers,
+      "contact-age:",
+      (c) => contactAgeBands[c.contact_age_band ?? ""],
+      Object.values(contactAgeBands),
+    ).filter((g) => g.buyers.length),
   };
 }
 

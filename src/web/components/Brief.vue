@@ -4,6 +4,7 @@ import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed } from "vue";
 import { stamp } from "../shared";
 import Icon from "./Icon.vue";
+import { vDismissOnBackdrop } from "./dismissOnBackdrop";
 import type { Alternative, Company, InquiryRow } from "../types";
 
 const props = defineProps<{
@@ -72,9 +73,9 @@ defineExpose({ show });
 <template>
   <dialog
     ref="dialog"
+    v-dismiss-on-backdrop
     class="brief-drawer"
     aria-labelledby="brief-title"
-    @click="$event.target === dialog && close()"
   >
     <div class="drawer-inner">
       <div class="drawer-heading">

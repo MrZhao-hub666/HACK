@@ -3,7 +3,8 @@ import { ref } from "vue";
 import Icon from "./Icon.vue";
 import PasswordForm from "./PasswordForm.vue";
 import Members from "./Members.vue";
-import { api, errorMessage } from "../shared";
+import { vDismissOnBackdrop } from "./dismissOnBackdrop";
+import { api, errorMessage, toast } from "../shared";
 import type { Session, User } from "../types";
 
 defineProps<{ user: User }>();
@@ -26,8 +27,9 @@ function show() {
 }
 function saved(session: Session) {
   editing.value = false;
-  message.value = "密码已更新，其他设备需要重新登录。";
+  message.value = "其他设备需要重新登录。";
   emit("authenticated", session);
+  toast("密码已更新");
 }
 async function logout() {
   try {
@@ -36,6 +38,7 @@ async function logout() {
     emit("signedOut");
   } catch (err) {
     error.value = errorMessage(err);
+    toast("退出登录失败", "error");
   }
 }
 defineExpose({ show });
@@ -48,6 +51,7 @@ defineExpose({ show });
       emit('closed');
     "
     ref="dialog"
+    v-dismiss-on-backdrop
     class="dialogwrap account-dialog"
     aria-labelledby="account-title"
   >

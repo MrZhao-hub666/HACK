@@ -134,7 +134,7 @@ async function mutate(
     toast(label);
     emit("reload");
   } catch (e) {
-    toast(errorMessage(e));
+    toast(errorMessage(e), "error");
     await open(selected.value, false);
   } finally {
     busy.value = false;
@@ -148,7 +148,7 @@ function edit(
 }
 function record(type: "notes" | "reply") {
   if (!item.value) return;
-  if (!note.value.trim()) return toast("请先填写回复内容或跟进备注");
+  if (!note.value.trim()) return toast("请先填写回复内容或跟进备注", "warning");
   mutate(
     "/" + type,
     "POST",

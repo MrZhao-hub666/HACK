@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from typing import Literal
 
-from .accounts import team
+from .accounts import bootstrap_admin, team
 from .alternatives import router as alternatives_router
 from .auth import browser_write, router as auth_router, workspace_user
 from .channels import receiver_settings, router
@@ -19,15 +19,18 @@ from .db import audit, database, initialize, one, utc
 from .domestic import router as domestic_router
 from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
-from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
+from .markets import DISCOVERY_MARKETS
+from .models import Company, ContactAgeBand, ContactGender, Discovery, Event, InquiryEdit, Merge, Note, Reply
 from .outreach import router as outreach_router
-from .prospects import discover, host, save_company, valid_url
+from .prospects import discover, host, save_company, search_credentials, valid_url
+from .recommendations import recommendations, refresh as refresh_recommendations
 from .seed import seed
 
 
 @asynccontextmanager
 async def lifespan(app):
     initialize()
+    bootstrap_admin()
     seed()
     yield
 
@@ -70,7 +73,11 @@ def config():
     return {
         "team": sales,
         "intents": INTENTS,
-        "live_search": bool(os.getenv("BRAVE_API_KEY")),
+        "live_search": search_credentials() is not None,
+        "discovery_markets": [
+            {"region": region, "markets": list(markets)}
+            for region, markets in DISCOVERY_MARKETS.items()
+        ],
         "receivers": [
             {
                 "id": k,
@@ -88,6 +95,16 @@ def config():
 @business.post("/api/discovery/search")
 def discovery(req: Discovery):
     return discover(req)
+
+
+@business.get("/api/discovery/recommendations")
+def buyer_recommendations():
+    return recommendations()
+
+
+@business.post("/api/discovery/recommendations/refresh")
+def update_buyer_recommendations(automatic: bool = False):
+    return refresh_recommendations(automatic)
 
 
 class NewCompany(Company):
@@ -125,6 +142,8 @@ def adopt(req: NewCompany, user=Depends(workspace_user)):
 
 class CompanyUpdate(Company):
     owner: str | None = Field(default=None, max_length=80)
+    contact_gender: ContactGender | None = None
+    contact_age_band: ContactAgeBand | None = None
     confirmed_deal: bool | None = None
 
 

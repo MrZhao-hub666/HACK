@@ -58,7 +58,7 @@ function example() {
 }
 async function submit() {
   if (!form.value.body.trim() && !form.value.attachment.trim())
-    return toast("请填写消息或附件说明");
+    return toast("请填写消息或附件说明", "warning");
   busy.value = true;
   try {
     receipt.value = await api<Receipt>(
@@ -70,9 +70,10 @@ async function submit() {
       },
     );
     emit("reload");
-    toast(receipt.value.duplicate ? "已识别重复消息" : "消息已进入收件箱");
+    if (receipt.value.duplicate) toast("已识别重复消息", "info");
+    else toast("消息已进入收件箱");
   } catch (e) {
-    toast(errorMessage(e));
+    toast(errorMessage(e), "error");
   } finally {
     busy.value = false;
   }

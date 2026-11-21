@@ -2,7 +2,7 @@
 import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { onMounted, ref } from "vue";
 import Icon from "./Icon.vue";
-import { api, errorMessage } from "../shared";
+import { api, errorMessage, toast } from "../shared";
 import type { User } from "../types";
 
 defineProps<{ currentId: number }>();
@@ -47,15 +47,14 @@ async function save() {
       await api("/auth/members/" + target.value!.id + "/password", "POST", {
         password: password.value,
       });
-    const text =
-      action.value === "create"
-        ? "成员已创建，首次登录时须更换密码。"
-        : "临时密码已重置，原有登录会话已失效。";
+    const created = action.value === "create";
     start("list");
-    message.value = text;
+    message.value = created ? "新成员首次登录时须更换密码。" : "该成员原有登录会话已失效。";
+    toast(created ? "成员已创建" : "临时密码已重置");
     await load();
   } catch (err) {
     error.value = errorMessage(err);
+    toast("成员信息保存失败", "error");
   } finally {
     busy.value = false;
   }
@@ -68,12 +67,14 @@ async function toggle(member: User) {
     await api("/auth/members/" + member.id, "PATCH", {
       active: !member.active,
     });
-    message.value =
+    toast(
       member.display_name +
-      (member.active ? "的账号已停用。" : "的账号已启用。");
+        (member.active ? "的账号已停用" : "的账号已启用"),
+    );
     await load();
   } catch (err) {
     error.value = errorMessage(err);
+    toast("账号状态更新失败", "error");
   } finally {
     busy.value = false;
   }
