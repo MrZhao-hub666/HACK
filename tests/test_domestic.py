@@ -110,6 +110,10 @@ def test_search_adopt_and_sample_isolation(client, monkeypatch):
 
 def test_webui_contract_and_errors(client, monkeypatch, capsys, tmp_path):
     monkeypatch.delenv("MEDIACRAWLER_URL", raising=False)
+    assert rows(client)["index_state"] == "unconfigured"
+    with monkeypatch.context() as configured:
+        configured.setenv("MEDIACRAWLER_URL", "http://127.0.0.1:8091")
+        assert rows(client)["index_state"] == "awaiting_sync"
     with pytest.raises(SystemExit) as unavailable:
         domestic.main(["list"])
     assert unavailable.value.code == 1
@@ -155,6 +159,8 @@ def test_webui_contract_and_errors(client, monkeypatch, capsys, tmp_path):
     domestic.main(["import", "xhs", str(export)])
     assert json.loads(capsys.readouterr().out)["inserted"] == 1
     assert rows(client, platform="xhs", signal="求购")["total"] == 1
+    no_match = rows(client, q="ZZZ-无匹配-987654")
+    assert no_match["total"] == 0 and no_match["index_state"] == "indexed"
 
     with pytest.raises(HTTPException) as invalid_rows:
         upload("xhs", {})

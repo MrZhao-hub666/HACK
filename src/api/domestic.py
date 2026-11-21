@@ -311,7 +311,15 @@ def search(
             if offset <= total < offset + limit:
                 items.append(describe(row))
             total += 1
-    return {"items": items, "total": total}
+        indexed = total > 0 or db.execute(
+            "SELECT 1 FROM domestic_signals LIMIT 1"
+        ).fetchone() is not None
+    index_state = "indexed"
+    if not indexed:
+        index_state = (
+            "awaiting_sync" if os.getenv("MEDIACRAWLER_URL", "").strip() else "unconfigured"
+        )
+    return {"items": items, "total": total, "index_state": index_state}
 
 
 @router.post("/signals/{ident}/adopt")

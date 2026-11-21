@@ -126,6 +126,17 @@ def check_domestic(page):
     page.get_by_label("数据来源").select_option("domestic")
     expect(page.get_by_text("接入 MediaCrawler 数据")).to_have_count(0)
     expect(page.locator('input[type="file"]')).to_have_count(0)
+    search = page.get_by_role("button", name="搜索线索", exact=True)
+    expect(search).to_be_enabled()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("刹车片")
+    with page.expect_response(lambda res: "/api/domestic/signals?" in res.url) as response:
+        search.click()
+    assert response.value.ok and response.value.json()["total"] == 0
+    expect(page.get_by_role("status").filter(has_text="尚未接入渠道数据")).to_be_visible()
+
+    seed_domestic_examples()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("")
+    search.click()
     cards = page.locator(".domestic-card")
     expect(cards).to_have_count(2)
     expect(cards.filter(has_text="80 套")).to_contain_text("重卡刹车片")
@@ -133,6 +144,11 @@ def check_domestic(page):
     page.get_by_role("button", name="搜索线索").click()
     expect(cards).to_have_count(1)
     expect(cards.first).to_contain_text("小红书")
+    expect(page.get_by_role("status").filter(has_text="找到 1 条线索")).to_be_visible()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("ZZZ-无匹配-987654")
+    search.click()
+    expect(page.get_by_role("status").filter(has_text="未找到匹配线索")).to_be_visible()
+    expect(cards).to_have_count(0)
     page.get_by_role("textbox", name="关键词", exact=True).fill("")
     page.get_by_label("内容意图").select_option("供应推广")
     page.get_by_role("button", name="搜索线索").click()
@@ -149,6 +165,7 @@ def main():
             DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
         )
         os.environ.pop("LLM_API_KEY", None)
+        os.environ.pop("MEDIACRAWLER_URL", None)
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
@@ -168,7 +185,6 @@ def main():
                 encoded = encode_password(initial)
                 create_account(db, "lin.yue", "林悦", "admin", encoded)
                 create_account(db, "chen.zhou", "陈舟", "sales", encoded)
-            seed_domestic_examples()
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
                 context = browser.new_context(viewport={"width": 1440, "height": 1000})

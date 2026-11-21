@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, errorMessage, stamp } from "../shared";
-import type { DomesticSignal } from "../types";
+import type { DomesticSearchResult, DomesticSignal } from "../types";
 import Icon from "./Icon.vue";
 
 const emit = defineEmits<{
@@ -10,6 +10,11 @@ const emit = defineEmits<{
   company: [id: number];
 }>();
 const labels = { dy: "抖音", xhs: "小红书" };
+const emptyMessages: Record<DomesticSearchResult["index_state"], string> = {
+  indexed: "未找到匹配线索，可调整关键词或筛选条件。",
+  awaiting_sync: "后端尚未同步渠道数据，当前没有可检索的线索。",
+  unconfigured: "后端尚未接入渠道数据，当前没有可检索的线索。",
+};
 const q = ref(""),
   filter = ref("求购"),
   platform = ref("");
@@ -18,6 +23,8 @@ const items = ref<DomesticSignal[]>([]),
   offset = ref(0),
   size = 20;
 const busy = ref(false),
+  searching = ref(false),
+  searchMessage = ref(""),
   error = ref(""),
   message = ref(""),
   activeId = ref(0);
@@ -44,13 +51,20 @@ async function results(start: number) {
   });
   if (platform.value) params.set("platform", platform.value);
   if (filter.value) params.set("signal", filter.value);
-  const res = await api<{ items: DomesticSignal[]; total: number }>(
-    "/domestic/signals?" + params,
-  );
-  items.value = res.items;
-  total.value = res.total;
-  offset.value = start;
-  activeId.value = 0;
+  searching.value = true;
+  searchMessage.value = "";
+  try {
+    const res = await api<DomesticSearchResult>("/domestic/signals?" + params);
+    items.value = res.items;
+    total.value = res.total;
+    offset.value = start;
+    activeId.value = 0;
+    searchMessage.value = res.total
+      ? `找到 ${res.total} 条线索。`
+      : emptyMessages[res.index_state];
+  } finally {
+    searching.value = false;
+  }
 }
 function startAdopt(item: DomesticSignal) {
   activeId.value = item.id;
@@ -110,25 +124,25 @@ onMounted(() => action(() => results(0)));
         >
       </div>
       <div class="actions">
-        <button class="primary" :disabled="busy">搜索线索</button>
+        <button class="primary" :disabled="busy">
+          {{ searching ? "搜索中…" : "搜索线索" }}
+        </button>
+        <span class="hint" role="status">
+          {{ searching ? "正在检索已同步的线索…" : searchMessage }}
+        </span>
       </div>
     </form>
   </section>
   <div class="notice" role="alert" v-if="error">{{ error }}</div>
   <p class="hint" role="status" v-if="message">{{ message }}</p>
-  <section class="panel" :aria-busy="busy">
+  <section v-if="items.length" class="panel" :aria-busy="busy">
     <div class="panelhead">
       <div class="sect">
         <h2>线索结果</h2>
         <span class="count">{{ total }}</span>
       </div>
     </div>
-    <p v-if="!items.length" class="empty">
-      {{
-        busy ? "读取中…" : "没有匹配的社交线索。可调整关键词或筛选条件。"
-      }}
-    </p>
-    <div v-else class="cards discovery-cards">
+    <div class="cards discovery-cards">
       <article
         v-for="item in items"
         :key="item.id"

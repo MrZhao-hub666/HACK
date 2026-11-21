@@ -99,6 +99,11 @@ export interface DomesticSignal {
   company_id: number | null;
   inquiry_id: number | null;
 }
+export interface DomesticSearchResult {
+  items: DomesticSignal[];
+  total: number;
+  index_state: "indexed" | "awaiting_sync" | "unconfigured";
+}
 export interface Receipt {
   inquiry_id: number;
   duplicate: boolean;
