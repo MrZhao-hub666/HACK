@@ -207,6 +207,6 @@ def link(ident: int, req: Merge):
         return merge(db, ident, req.target_id, req.actor)
 
 
-web = Path(__file__).resolve().parent.parent / "web"
+web = Path(__file__).resolve().parent.parent / "web" / "dist"
 if web.is_dir():
     app.mount("/", StaticFiles(directory=web, html=True), name="workbench")

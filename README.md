@@ -10,16 +10,20 @@
 docker compose up -d --build --wait
 ```
 
-工作台在 [localhost:8080](http://localhost:8080)，接口清单在 [localhost:8080/docs](http://localhost:8080/docs)。健康检查为 `GET /api/health`。Compose 默认仅绑定本机，API 容器保持在内部网络。SQLite 保存在命名卷 `sales_data`，普通 `docker compose down` 后数据仍保留。若端口占用，将 `.env.example` 复制为 `.env` 并修改 `PORT`。首次构建需要取得 Python、Nginx 镜像及 Python 依赖。Vue 3.5.44 浏览器发行版已随代码提供，启动时无需连接 npm 或 CDN。
+工作台在 [localhost:8080](http://localhost:8080)，接口清单在 [localhost:8080/docs](http://localhost:8080/docs)。健康检查为 `GET /api/health`。Compose 默认仅绑定本机，API 容器保持在内部网络。SQLite 保存在命名卷 `sales_data`，普通 `docker compose down` 后数据仍保留。若端口占用，将 `.env.example` 复制为 `.env` 并修改 `PORT`。首次构建下载基础镜像及依赖，在 Node 构建阶段执行 TypeScript 检查和 Vite 打包。运行时由 Nginx 提供本地静态资源。
 
-本地开发可使用 Python 3.12：
+本地开发使用 Python 3.12 和 Node.js 22.12+。在项目根目录执行
 
 ```sh
 python -m pip install -r src/api/requirements.txt
+npm --prefix src/web ci
+npm --prefix src/web run build
 python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-打开 [localhost:8000](http://localhost:8000)。本地模式由 FastAPI 同源提供 Vue 页面，SQLite 默认位于 `data/leads.sqlite3`。直接启动 Python 时使用进程环境变量，Compose 会读取根目录 `.env`。
+打开 [localhost:8000](http://localhost:8000)。FastAPI 同源提供 `src/web/dist`，SQLite 默认位于 `data/leads.sqlite3`。修改前端时可在第二个终端执行 `npm --prefix src/web run dev`，打开终端显示的地址，Vite 会热更新组件并将 API 请求转发至 8000 端口。直接启动 Python 时使用进程环境变量，Compose 会读取根目录 `.env`。
+
+总览页按工作台数据展示待回、夜班、认领和客户指标。点击指标可进入对应队列，点“查看跟进简报”可按优先级、当前销售或采购能力打开具体记录。简报在本地汇总，每条来信的分析方式显示在收件箱。
 
 ## 三分钟走通销售流程
 
@@ -45,7 +49,7 @@ python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
 
 | 路径 | 用途 |
 |---|---|
-| `src/web/` | Vue 3 ES 模块、页面组件、样式、本地运行时和 Nginx 配置 |
+| `src/web/` | Vue 3 单文件组件、TypeScript 接口类型、Vite 构建和 Nginx 配置 |
 | `src/api/` | FastAPI、数据模型、SQLite、线索发现、渠道适配、消息归并 |
 | `docs/` | 原始需求分析、获客调研和联调手册 |
 | `tests/` | API 回归、并发去重、平台回调及真实浏览器烟测 |
@@ -60,6 +64,6 @@ python -m playwright install chromium
 python -m scripts.goal
 ```
 
-仓库的 `goal` 验收入口依次执行 API 测试、Chromium 操作和 Compose 配置检查，任一步失败都会返回非零状态。要同时构建并启动容器，可执行 `python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
+仓库的 `goal` 验收入口从锁文件安装前端依赖，再执行 TypeScript 检查、Vite 构建、API 测试、Chromium 烟测和 Compose 配置检查。要同时构建并启动容器，可执行 `python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
 
 [架构设计](DESIGN.md) · [协作约定](AGENTS.md) · [接口与渠道联调](docs/接口与渠道联调.md) · [需求分析](docs/冠英黑客松需求分析.md) · [海外获客调研](docs/海外潜客发现与社交渠道接入.md)

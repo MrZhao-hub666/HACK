@@ -1,6 +1,7 @@
 """Run the repository's acceptance goal, optionally starting Docker Compose."""
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,7 +15,13 @@ def main():
         "--docker", action="store_true", help="build and start the Compose deployment"
     )
     args = parser.parse_args()
+    npm = shutil.which("npm")
+    if not npm:
+        parser.error("验收需要 Node.js 22.12+ 与 npm，用于检查 TypeScript 并构建 Vue 页面。")
+    web = str(ROOT / "src" / "web")
     commands = [
+        [npm, "--prefix", web, "ci", "--no-audit", "--no-fund"],
+        [npm, "--prefix", web, "run", "build"],
         [sys.executable, "-m", "pytest", "-q", "tests"],
         [sys.executable, "-m", "tests.browser_smoke"],
         ["docker", "compose", "config", "--quiet"],

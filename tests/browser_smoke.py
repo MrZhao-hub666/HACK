@@ -38,6 +38,21 @@ def main():
                 errors = []
                 page.on("pageerror", lambda err: errors.append(str(err)))
                 page.goto(url)
+                expect(page.get_by_role("heading", name="海外销售工作台")).to_be_visible()
+                expect(page.locator(".priority-row")).to_have_count(4)
+                expect(page.locator(".donut strong")).to_have_text("4")
+                page.get_by_role("button", name="查看跟进简报").click()
+                brief = page.get_by_role("dialog", name="销售跟进简报")
+                expect(brief.locator(".brief-card")).to_have_count(4)
+                brief.get_by_role("button", name="我的交接", exact=True).click()
+                expect(brief).to_contain_text("林悦名下有 0 条未结束的询盘")
+                brief.get_by_role("button", name="客户核实", exact=True).click()
+                brief.locator(".brief-card").first.click()
+                expect(page.get_by_role("heading", name="编辑客户档案")).to_be_visible()
+                page.get_by_role("button", name="关闭", exact=True).click()
+                page.get_by_role("button", name="工作台总览").click()
+                page.get_by_role("button", name="待回复询盘", exact=False).click()
+                expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
                 page.get_by_role("button", name="买家发现", exact=True).click()
                 expect(page.locator(".companycard")).to_have_count(3)
@@ -75,9 +90,11 @@ def main():
                 expect(page.locator(".ticket")).to_have_count(5)
                 page.set_viewport_size({"width": 390, "height": 844})
                 expect(page.locator("h1")).to_be_visible()
-                assert page.evaluate(
-                    "document.documentElement.scrollWidth <= innerWidth"
-                )
+                for name in ["工作台总览", "买家发现", "客户档案", "消息补录", "渠道模拟器", "询盘收件箱"]:
+                    page.get_by_role("button", name="打开导航").click()
+                    page.locator(".mobile-nav").get_by_role("button", name=name).click()
+                    expect(page.locator("h1")).to_have_text("海外销售工作台" if name == "工作台总览" else name)
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), name
                 assert not errors, errors
                 browser.close()
         finally:

@@ -6,7 +6,7 @@
 
 ## 目录与维护职责
 
-- Vue 组件与视图在 `src/web/components/`，公共 API 调用和显示格式在 `shared.js`。界面使用中文，来源原文和客户编码不改写。Vue 模板使用转义插值显示用户输入，外部链接仅允许 HTTP(S)。
+- Vue 单文件组件使用 `<script setup lang="ts">`，位于 `src/web/` 及其 `components/` 目录。公共 API 调用和显示格式在 `shared.ts`，接口类型在 `types.ts`。界面使用中文，来源原文和客户编码不改写。Vue 模板使用转义插值显示用户输入，外部链接仅允许 HTTP(S)。
 - HTTP 路由在 `src/api/main.py`；渠道签名验证和拉取在 `channels.py`，询盘归并及记录在 `inbox.py`，检索和客户资料在 `prospects.py`，本地或可选模型分析在 `intelligence.py`。
 - 数据库变更同时更新 `schema.sql` 和已有命名卷升级路径。对有状态操作保留唯一键、事务和重试语义。网络访问放在数据库写事务之外。
 - 配置统一使用环境变量。有配置变化时同步 `.env.example`、Compose、README 与渠道手册。凭据不进入前端、仓库或错误响应。
