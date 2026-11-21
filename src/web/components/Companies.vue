@@ -12,11 +12,16 @@ import {
 import Icon from "./Icon.vue";
 import type { Company, CompanyFields } from "../types";
 
-const props = defineProps<{ companies: Company[]; focusId: number }>();
+const props = defineProps<{
+  companies: Company[];
+  team: string[];
+  focusId: number;
+}>();
 const emit = defineEmits<{ reload: []; dismiss: [] }>();
 const q = ref(""),
   role = ref(""),
   id = ref(0),
+  owner = ref(""),
   editor = ref<HTMLDialogElement | null>(null),
   error = ref(""),
   form = ref(blankCompany()),
@@ -33,6 +38,7 @@ const filtered = computed(() =>
 );
 function start(c?: Company) {
   id.value = c?.id || 0;
+  owner.value = c?.owner || "";
   form.value = blankCompany();
   if (c)
     for (const key of Object.keys(form.value) as (keyof CompanyFields)[])
@@ -47,7 +53,7 @@ async function save() {
     await api(
       id.value ? "/companies/" + id.value : "/companies",
       id.value ? "PUT" : "POST",
-      form.value,
+      id.value ? { ...form.value, owner: owner.value } : form.value,
     );
     editor.value?.close();
     emit("reload");
@@ -97,6 +103,7 @@ onMounted(() => {
           <small>{{ c.source }}</small>
         </div>
         <h3>{{ c.name }}</h3>
+        <small v-if="c.owner">档案负责人 · {{ c.owner }}</small>
         <p>{{ c.evidence || "等待补充业务证据" }}</p>
         <small v-if="c.contact">公开业务联系 · {{ c.contact }}</small>
         <div class="tags">
@@ -114,23 +121,23 @@ onMounted(() => {
               :href="safeLink(c.website)"
               target="_blank"
               rel="noopener noreferrer"
-              >官网 <icon name="external" size="sm" /></a
-            >
+              >官网 <icon name="external" size="sm"
+            /></a>
             <a
               v-if="c.social"
               :href="safeLink(c.social)"
               target="_blank"
               rel="noopener noreferrer"
-              >社交主页 <icon name="external" size="sm" /></a
-            >
+              >社交主页 <icon name="external" size="sm"
+            /></a>
           </div>
           <a
             v-if="c.evidence_url"
             :href="safeLink(c.evidence_url)"
             target="_blank"
             rel="noopener noreferrer"
-            >业务依据 <icon name="external" size="sm" /></a
-          >
+            >业务依据 <icon name="external" size="sm"
+          /></a>
           <button class="ghost" @click="start(c)">编辑档案</button>
         </div>
       </article>
@@ -155,6 +162,19 @@ onMounted(() => {
         </button>
       </div>
       <div class="fields">
+        <label v-if="id"
+          >档案负责人<select v-model="owner">
+            <option value="">尚未分派</option>
+            <option
+              v-if="owner && !team.includes(owner)"
+              :value="owner"
+              disabled
+            >
+              {{ owner }}（历史负责人）
+            </option>
+            <option v-for="member in team" :key="member">{{ member }}</option>
+          </select></label
+        >
         <label
           >企业名称<input required v-model="form.name" maxlength="200" />
         </label>

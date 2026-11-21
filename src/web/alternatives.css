@@ -1,0 +1,26 @@
+.alternative-panel { margin-block: var(--space-12); border: 1px solid var(--blue-outline); border-radius: var(--radius-card); background: var(--paper); }
+.alternative-panel summary { display: flex; align-items: center; gap: var(--space-8); color: var(--navy); font: var(--type-label); padding: var(--space-12) var(--space-16); cursor: pointer; }
+.alternative-panel summary::-webkit-details-marker { display: none; }
+.alternative-panel summary > svg:last-child { margin-left: auto; }
+.alternative-panel[open] summary > svg:last-child { transform: rotate(90deg); }
+.alt-body { border-top: 1px solid var(--blue-outline); padding: var(--space-16); }
+.alt-controls, .alt-links, .alt-contact, .alt-existing, .alt-actions, .alt-title, .alt-batch { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }
+.alt-controls { align-items: end; margin-top: var(--space-12); }
+.alt-controls label { display: grid; gap: var(--space-4); font: var(--type-label-medium); color: var(--muted); }
+.alt-help { display: grid; justify-items: start; gap: var(--space-8); }
+.alt-title, .alt-batch { justify-content: space-between; }
+.alt-batch { margin-top: var(--space-16); }
+.alternative-card { background: var(--card-fill); border: 1px solid var(--line); border-radius: var(--radius-card); padding: var(--space-16); margin-block: var(--space-12); display: grid; gap: var(--space-8); min-width: 0; overflow-wrap: anywhere; }
+.alternative-card h3 { flex: 1 1 9rem; }
+.alt-links a, .alt-contact a { display: inline-flex; align-items: center; gap: var(--space-4); font: var(--type-label-medium); }
+.alt-contact, .alt-reason { color: var(--ink-secondary); font: var(--type-caption); }
+.alt-origin { justify-self: start; }
+.alternative-card .analysis-box, .alternative-card .notice { margin: 0; }
+.alt-actions { padding-top: var(--space-8); border-top: 1px solid var(--divider); }
+.alt-proof { padding: var(--space-12); background: var(--surface-subtle); border-radius: var(--radius-control); }
+.brief-tabs { flex-wrap: wrap; }
+.assistant-count { background: var(--orange-pale); color: var(--orange-ink); font: var(--type-label-medium); padding: 0 var(--space-4); border-radius: var(--radius-small); }
+@media (max-width:700px) { .alt-body, .alternative-card { padding: var(--space-12); } }
+
+.alt-source-search, .alt-source-hit { display: grid; gap: var(--space-8); justify-items: start; }
+.alt-source-hit { border-top: 1px solid var(--divider); padding-block: var(--space-8); }

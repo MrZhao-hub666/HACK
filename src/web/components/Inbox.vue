@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AlternativePanel from "./AlternativePanel.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed, watch } from "vue";
 import {
@@ -13,6 +14,7 @@ import {
 import { filters, matchesFilter, channelStyles } from "./workspace";
 import Icon from "./Icon.vue";
 import type {
+  AlternativeBatch,
   InquiryRow,
   InquiryDetail,
   Company,
@@ -28,7 +30,7 @@ const props = defineProps<{
   focusId: number;
   initialFilter: Filter;
 }>();
-const emit = defineEmits<{ reload: []; compose: [] }>();
+const emit = defineEmits<{ reload: []; compose: []; company: [id: number] }>();
 const search = ref(""),
   filter = ref(props.initialFilter || "全部"),
   channel = ref(""),
@@ -54,6 +56,23 @@ const visible = computed(() =>
       matchesFilter(r, filter.value, props.actor),
   ),
 );
+const companySelect = ref<HTMLSelectElement | null>(null);
+function linkCompany() {
+  const field = companySelect.value;
+  const section = field?.closest("details");
+  if (section) section.open = true;
+  field?.focus();
+}
+function alternativesChanged(batch: AlternativeBatch) {
+  if (
+    item.value?.id === batch.inquiry_id &&
+    item.value.company_id === batch.source_company_id
+  ) {
+    item.value.alternatives = batch;
+    if (!item.value.owner) item.value.owner = props.actor;
+  }
+  emit("reload");
+}
 const latest = computed(() => item.value?.messages.at(-1)?.features);
 let seq = 0;
 async function open(id: number, clear = true) {
@@ -248,6 +267,16 @@ function record(type: "notes" | "reply") {
             <span class="tag" v-for="q in latest.quantities">{{ q }}</span>
           </div>
         </div>
+        <AlternativePanel
+          :key="item.id + '-' + item.company_id"
+          :inquiry="item"
+          :actor="actor"
+          :source="companies.find((c) => c.id === item?.company_id)"
+          :live="config.live_search"
+          @link="linkCompany"
+          @company="emit('company', $event)"
+          @changed="alternativesChanged"
+        />
         <div class="tabs">
           <button
             v-for="t in ['消息', '处理记录']"
@@ -340,6 +369,7 @@ function record(type: "notes" | "reply") {
           <div class="fields compact">
             <label
               >关联企业<select
+                ref="companySelect"
                 aria-label="关联企业"
                 :value="item.company_id || ''"
                 :disabled="busy"

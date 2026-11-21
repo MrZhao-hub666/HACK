@@ -1,6 +1,7 @@
 """Run against an isolated SQLite database and the real Vue UI in Chromium."""
 
 import os
+import re
 import socket
 import tempfile
 import threading
@@ -80,6 +81,44 @@ def check_loading_states(context, url):
         page.close()
 
 
+def check_alternative_buyers(page):
+    panel = page.locator(".alternative-panel")
+    panel.locator("summary").click()
+    page.get_by_role("button", name="去关联企业").click()
+    expect(page.get_by_label("关联企业", exact=True)).to_be_focused()
+    page.get_by_label("关联企业", exact=True).select_option(label="L&R Haulage")
+    expect(
+        page.get_by_label("关联企业", exact=True).locator("option:checked")
+    ).to_have_text("L&R Haulage")
+    expect(panel.locator("h3", has_text="L&R Haulage")).to_be_attached()
+    panel.locator("summary").click()
+    panel.get_by_role("button", name="认领并查找").click()
+    expect(panel.locator(".alternative-card")).to_have_count(2)
+    expect(panel.locator(".alt-batch")).to_contain_text("本地公开资料")
+    expect(page.get_by_label("负责人", exact=True)).to_have_value("林悦")
+    expect(page.locator(".desktop-nav .assistant-count")).to_have_text("2")
+    page.locator(".desktop-nav .assistant-entry").click()
+    brief = page.get_by_role("dialog", name="销售跟进简报")
+    cards = brief.locator(".alternative-card")
+    expect(cards).to_have_count(2)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert brief.evaluate("el=>el.scrollWidth<=el.clientWidth")
+    first = cards.first
+    expect(first).to_contain_text("同市场潜客")
+    expect(first.get_by_role("link", name="业务依据")).to_have_attribute(
+        "href", re.compile("^https://")
+    )
+    first.get_by_role("button", name="加入客户档案").click()
+    expect(cards).to_have_count(1)
+    cards.first.get_by_role("button", name="不相关").click()
+    expect(brief).to_contain_text("暂无待处理推荐")
+    brief.get_by_role("button", name="关闭简报").click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    expect(panel.locator(".alternative-card")).to_have_count(1)
+    expect(panel).to_contain_text("已采纳")
+    expect(panel).to_contain_text("负责人 · 林悦")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ.update(
@@ -149,6 +188,7 @@ def main():
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
                 expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
+                check_alternative_buyers(page)
                 page.get_by_role("button", name="买家发现", exact=True).click()
                 expect(page.locator(".companycard")).to_have_count(3)
                 card = page.locator(".companycard").filter(has_text="Swee Siang")

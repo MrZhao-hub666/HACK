@@ -63,6 +63,7 @@ export interface Candidate extends Omit<CompanyFields, "contact"> {
   checked: string;
 }
 export interface Company extends CompanyFields {
+  owner: string;
   id: number;
   source: string;
   checked: string;
@@ -115,6 +116,7 @@ export interface Message {
   features: Features;
 }
 export interface InquiryDetail extends Inquiry {
+  alternatives: AlternativeBatch | null;
   messages: Message[];
   history: {
     id: number;
@@ -145,4 +147,26 @@ export interface User {
 export interface Session {
   user: User;
   expires_at: number;
+}
+
+export interface Alternative {
+  id: number;
+  inquiry_id: number;
+  source_name: string;
+  source_url: string;
+  owner: string;
+  profile: Omit<Candidate, "notes">;
+  decision: "pending" | "adopted";
+  reason: string;
+  archive_id: number | null;
+  archive_owners: string[];
+  proof: { url: string; note: string; actor: string; at: string } | null;
+}
+export interface AlternativeBatch {
+  inquiry_id: number;
+  source_company_id: number;
+  generated_at: string;
+  mode: "local" | "live";
+  query: string;
+  items: Alternative[];
 }

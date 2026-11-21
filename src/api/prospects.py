@@ -59,6 +59,24 @@ MARKETS = {
 }
 
 
+COUNTRY_CODES = {
+    "my": "malaysia",
+    "th": "thailand",
+    "ph": "philippines",
+    "br": "brazil",
+    "mx": "mexico",
+    "ae": "united arab emirates",
+    "id": "indonesia",
+}
+
+
+def market_key(country):
+    country = country.strip()
+    return COUNTRY_CODES.get(
+        country.casefold(), MARKETS.get(country, country).casefold()
+    )
+
+
 def valid_url(value):
     if not value:
         return ""
@@ -100,6 +118,44 @@ def samples():
     ]
 
 
+def public_search(query):
+    key = os.getenv("BRAVE_API_KEY")
+    if not key:
+        raise HTTPException(503, "实时搜索需要配置 BRAVE_API_KEY。")
+    try:
+        r = httpx.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            params={"q": query, "count": 12, "text_decorations": "false"},
+            headers={"X-Subscription-Token": key},
+            timeout=10,
+        )
+        r.raise_for_status()
+        results = r.json().get("web", {}).get("results", [])
+        if not isinstance(results, list):
+            raise ValueError("invalid results")
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(502, "实时搜索服务不可用，请稍后重试。") from exc
+    items = []
+    for hit in results:
+        if not isinstance(hit, dict):
+            continue
+        url = str(hit.get("url", ""))
+        if not url or len(url) > 1400:
+            continue
+        try:
+            valid_url(url)
+        except HTTPException:
+            continue
+        items.append(
+            {
+                "title": str(hit.get("title", ""))[:200],
+                "url": url,
+                "description": str(hit.get("description", ""))[:1500],
+            }
+        )
+    return items
+
+
 def discover(request):
     market = MARKETS.get(request.market, request.market)
     query = f"{market} {BUYER_TERMS[request.kind]} {request.keywords}".strip()
@@ -119,20 +175,7 @@ def discover(request):
                 continue
             result.append(row)
         return {"mode": request.mode, "query": query, "items": result}
-    key = os.getenv("BRAVE_API_KEY")
-    if not key:
-        raise HTTPException(503, "实时发现需要配置 BRAVE_API_KEY；可切换已核验样例。")
-    try:
-        r = httpx.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": 12, "text_decorations": "false"},
-            headers={"X-Subscription-Token": key},
-            timeout=10,
-        )
-        r.raise_for_status()
-        results = r.json().get("web", {}).get("results", [])
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
-        raise HTTPException(502, "实时搜索服务不可用，请稍后重试。") from exc
+    results = public_search(query)
     items = []
     seen = set()
     for hit in results:
@@ -170,24 +213,35 @@ def discover(request):
     return {"mode": request.mode, "query": query, "items": items}
 
 
-def save_company(db, data, source, checked=None):
+def matching_company(db, data):
+    domain = host(data["website"])
+    if domain:
+        row = db.execute(
+            "SELECT * FROM companies WHERE domain=? AND domain<>''", (domain,)
+        ).fetchone()
+        if row:
+            return row
+    for row in db.execute(
+        "SELECT * FROM companies WHERE lower(name)=lower(?) ORDER BY id",
+        (data["name"],),
+    ):
+        if market_key(row["country"]) == market_key(data["country"]):
+            return row
+    return None
+
+
+def save_company(db, data, source, checked=None, owner=""):
     for field in ["website", "social", "evidence_url"]:
         valid_url(data[field])
     domain = host(data["website"])
-    existing = db.execute(
-        "SELECT id FROM companies WHERE domain=? AND domain<>''", (domain,)
-    ).fetchone()
-    if not existing:
-        existing = db.execute(
-            "SELECT id FROM companies WHERE lower(name)=lower(?) AND lower(country)=lower(?)",
-            (data["name"], data["country"]),
-        ).fetchone()
+    existing = matching_company(db, data)
     if existing:
         db.execute("UPDATE companies SET saved=1 WHERE id=?", (existing["id"],))
         return one(db, "SELECT * FROM companies WHERE id=?", (existing["id"],))
     row = {
         **data,
         "domain": domain,
+        "owner": owner,
         "source": source,
         "saved": 1,
         "checked": checked or utc()[:10],

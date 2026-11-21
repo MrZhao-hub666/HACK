@@ -4,6 +4,7 @@ import os
 from fastapi import HTTPException
 
 from .accounts import team
+from .alternatives import batch as alternative_batch, merge_batches
 from .db import audit, database, one, utc
 from .intelligence import INTENTS, enrich, extract
 
@@ -123,6 +124,7 @@ def detail(db, ident):
     ]
     for m in messages:
         m["features"] = json.loads(m["features"])
+    item["alternatives"] = alternative_batch(db, ident)
     item["messages"] = messages
     item["history"] = [
         dict(r)
@@ -152,6 +154,10 @@ def edit(db, ident, patch, actor):
         if v is None and k != "company_id":
             raise HTTPException(422, "字段不能为空")
         if v != current[k]:
+            if k == "company_id":
+                db.execute(
+                    "DELETE FROM alternative_batches WHERE inquiry_id=?", (ident,)
+                )
             db.execute(f"UPDATE inquiries SET {k}=? WHERE id=?", (v, ident))
             labels = {
                 "owner": "分配负责人",
@@ -194,6 +200,7 @@ def merge(db, source, target, actor):
             target,
         ),
     )
+    merge_batches(db, source, target)
     db.execute("UPDATE inquiries SET merged_into=? WHERE id=?", (target, source))
     audit(db, target, actor, "关联会话", f"并入询盘 #{source}，保留各渠道原文")
     return detail(db, target)

@@ -21,6 +21,7 @@ import type {
   Config,
   Filter,
   InquiryRow,
+  Alternative,
   Metric,
   User,
   Page,
@@ -46,6 +47,7 @@ function readRoute(): { page: Page; filter: Filter; id: number } {
 }
 const route = ref(readRoute()),
   rows = ref<InquiryRow[]>([]),
+  alternatives = ref<Alternative[]>([]),
   companies = ref<Company[]>([]);
 const config = ref<Config>({
   team: [],
@@ -115,15 +117,17 @@ async function reload(manual = false) {
   refreshing.value = true;
   if (!ready.value) failed.value = "";
   try {
-    const [r, c, conf] = await Promise.all([
+    const [r, c, conf, feed] = await Promise.all([
       api<InquiryRow[]>("/inquiries"),
       api<Company[]>("/companies"),
       api<Config>("/config"),
+      api<Alternative[]>("/alternatives/mine"),
     ]);
     if (seq !== generation) return;
     rows.value = r;
     companies.value = c;
     config.value = conf;
+    alternatives.value = feed;
     ready.value = true;
     failed.value = "";
     if (manual === true) toast("数据已刷新");
@@ -140,12 +144,14 @@ function go(id: Page, filter?: Filter | null, recordId?: number) {
   if (recordId) q.set("id", String(recordId));
   location.hash = id + (q.size ? "?" + q : "");
 }
-function showBrief() {
+const inboxVisit = ref(0);
+function showBrief(preferAlternatives = false) {
   mobileNav.value?.close();
-  brief.value?.show();
+  brief.value?.show(preferAlternatives);
 }
 async function focus(id: number) {
   if (!rows.value.some((r) => r.id === id)) await reload();
+  if (page.value === "inbox" && route.value.id === id) inboxVisit.value++;
   go("inbox", null, id);
 }
 function hash() {
@@ -174,13 +180,14 @@ onUnmounted(() => {
       <WorkspaceNav
         :page="page"
         :waiting="queue.length"
+        :recommendations="alternatives.length"
         :user="user"
         @go="go"
         @account="
           mobileNav?.close();
           emit('account');
         "
-        @brief="showBrief"
+        @brief="showBrief(alternatives.length > 0)"
       />
     </aside>
     <dialog
@@ -200,13 +207,14 @@ onUnmounted(() => {
         <WorkspaceNav
           :page="page"
           :waiting="queue.length"
+          :recommendations="alternatives.length"
           :user="user"
           @go="go"
           @account="
             mobileNav?.close();
             emit('account');
           "
-          @brief="showBrief"
+          @brief="showBrief(alternatives.length > 0)"
         />
       </div>
     </dialog>
@@ -282,7 +290,7 @@ onUnmounted(() => {
           <template v-if="ready">
             <Inbox
               v-if="page === 'inbox'"
-              :key="'inbox-' + route.id + '-' + route.filter"
+              :key="'inbox-' + route.id + '-' + route.filter + '-' + inboxVisit"
               :rows="rows"
               :companies="companies"
               :actor="actor"
@@ -291,6 +299,7 @@ onUnmounted(() => {
               :initial-filter="route.filter"
               @reload="reload"
               @compose="go('manual')"
+              @company="go('companies', null, $event)"
             />
             <Discovery
               v-else-if="page === 'discovery'"
@@ -301,6 +310,7 @@ onUnmounted(() => {
             <Companies
               v-else-if="page === 'companies'"
               :key="'companies-' + route.id"
+              :team="config.team"
               :companies="companies"
               :focus-id="route.id"
               @reload="reload"
@@ -335,6 +345,8 @@ onUnmounted(() => {
     </main>
     <Brief
       ref="brief"
+      :live="config.live_search"
+      :alternatives="alternatives"
       :queue="queue"
       :rows="rows"
       :companies="companies"

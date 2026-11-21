@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS companies (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT NOT NULL DEFAULT '',
  kind TEXT NOT NULL DEFAULT '待识别', procurement TEXT NOT NULL DEFAULT '待核实',
  website TEXT NOT NULL DEFAULT '', social TEXT NOT NULL DEFAULT '', domain TEXT NOT NULL DEFAULT '',
- contact TEXT NOT NULL DEFAULT '',
+ contact TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',
  evidence TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '',
  source TEXT NOT NULL, checked TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0,
  reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT ''
@@ -49,3 +49,25 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS login_limits (bucket TEXT PRIMARY KEY, hits INTEGER NOT NULL, until INTEGER NOT NULL);
+
+CREATE TABLE IF NOT EXISTS alternative_buyers (
+ id INTEGER PRIMARY KEY, source_company_id INTEGER NOT NULL REFERENCES companies(id),
+ identity TEXT NOT NULL, profile TEXT NOT NULL,
+ decision TEXT NOT NULL DEFAULT 'pending' CHECK(decision IN ('pending','adopted','dismissed')),
+ company_id INTEGER REFERENCES companies(id),
+ proof_url TEXT NOT NULL DEFAULT '', proof_note TEXT NOT NULL DEFAULT '',
+ proof_actor TEXT NOT NULL DEFAULT '', proof_at TEXT NOT NULL DEFAULT '',
+ UNIQUE(source_company_id,identity)
+);
+CREATE TABLE IF NOT EXISTS alternative_batches (
+ inquiry_id INTEGER PRIMARY KEY REFERENCES inquiries(id), source_company_id INTEGER NOT NULL REFERENCES companies(id),
+ generated_at TEXT NOT NULL, mode TEXT NOT NULL, query TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alternative_slots (
+ inquiry_id INTEGER NOT NULL REFERENCES alternative_batches(inquiry_id) ON DELETE CASCADE ON UPDATE CASCADE,
+ position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 3), candidate_id INTEGER NOT NULL REFERENCES alternative_buyers(id),
+ PRIMARY KEY(inquiry_id,position), UNIQUE(inquiry_id,candidate_id)
+);
+
+CREATE INDEX IF NOT EXISTS company_name_lookup ON companies(lower(name));
+CREATE INDEX IF NOT EXISTS inquiry_company_owner ON inquiries(company_id,owner) WHERE merged_into IS NULL;
