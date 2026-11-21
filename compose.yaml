@@ -1,0 +1,49 @@
+name: kooying-leads
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_PATH: /data/leads.sqlite3
+      DEMO_DATA: ${DEMO_DATA:-1}
+      ENABLE_SIMULATOR: ${ENABLE_SIMULATOR:-1}
+      AUTO_ASSIGN: ${AUTO_ASSIGN:-0}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN:-}
+      META_PAGE_ID: ${META_PAGE_ID:-}
+      META_PAGE_TOKEN: ${META_PAGE_TOKEN:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-}
+      WX_TOKEN: ${WX_TOKEN:-}
+      WX_AES_KEY: ${WX_AES_KEY:-}
+      WX_CORP_ID: ${WX_CORP_ID:-}
+      WX_KF_SECRET: ${WX_KF_SECRET:-}
+    volumes:
+      - sales_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  web:
+    build:
+      context: .
+      dockerfile: src/web/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+volumes:
+  sales_data:
