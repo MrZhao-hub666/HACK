@@ -1,6 +1,6 @@
 # 冠英 · 海外销售工作台
 
-面向商用车制动片出口团队。销售可以按市场发现企业、打开业务证据、核实采购角色，也可以在同一工作台处理 Facebook 评论、Messenger、Facebook 表单、微信客服及人工补录的询盘。界面、API 和数据库实际联动，模拟消息明确标记来源。
+面向商用车制动片出口团队。销售可以按市场发现企业、打开业务证据、核实采购角色，在同一收件箱分派 Facebook、微信客服、WhatsApp、Instagram、X、TikTok、Telegram 和 LINE 的客户来信。模拟消息和人工补录均标记来源。
 
 ## 启动
 
@@ -55,11 +55,26 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 |---|---|---|
 | 企业发现 | 三家已公开核验的马来西亚样例，按类型及关键词筛选 | `BRAVE_API_KEY` 开启实际搜索。搜索结果是待核验候选；标题可修正，搜索地区需核实 |
 | 消息分析 | 本地中英等语言关键词和型号、数量规则，保留原文，可人工纠正意图 | 可选兼容 Chat Completions 的模型。显式设置 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` 后，消息正文将发给指定供应方；接口失败回退本地规则 |
-| 入站渠道 | 模拟器、人工补录、持久化去重与人工回复登记 | Meta Page 签名回调和微信客服加密回调需要企业授权与外网 HTTPS。配置与覆盖范围见渠道手册 |
+| 入站渠道 | 各渠道模拟、人工补录、持久化去重与人工回复登记 | 实时接收需要企业账号授权、平台订阅和公网 HTTPS 回调。渠道模拟器显示各平台最近接收结果 |
 | 负责人 | 按当前登录成员筛选“我的”，负责人可从启用成员中分派 | `AUTO_ASSIGN=1` 给新询盘分配当前未结束工单最少的销售 |
 | 演示与真实数据 | 首次初始化四条标记“模拟数据”的询盘及一条公开企业档案 | 干净部署前设置 `DEMO_DATA=0`。设置 `ENABLE_SIMULATOR=0` 可关闭模拟入口。已有数据不受参数切换影响 |
 
 此版本覆盖第一条赛题。界面中的编码用于识别采购意图和交接，技术选型和正式核价属于后续业务。工作台和业务 API 使用团队账号及服务端会话。渠道回调沿用平台签名校验。
+
+### 社交渠道配置
+
+在部署端的 `.env` 中按需填写以下变量，再执行 `docker compose up -d`。以 `_IDS` 结尾的变量支持同一应用下多个账号，用英文逗号分隔。渠道管理员在平台侧完成订阅后，使用另一个账号发送一条新询价进行联调。
+
+| 渠道 | 服务端配置 | 收件范围 |
+|---|---|---|
+| WhatsApp | `WA_PHONE_NUMBER_IDS`、`WA_APP_SECRET`、`WA_VERIFY_TOKEN` | 指定商业号码收到的消息 |
+| Instagram | `IG_ACCOUNT_IDS`、`IG_APP_SECRET`、`IG_VERIFY_TOKEN` | 指定专业账号收到的私信 |
+| X | `X_USER_IDS`、`X_CLIENT_SECRET` | 公开提及、帖子回复、传统私信原文、加密聊天到达提醒 |
+| TikTok | `TIKTOK_BUSINESS_IDS`、`TIKTOK_APP_SECRET` | 已获 Business Messaging 授权账号的完整入站私信事件 |
+| Telegram | `TELEGRAM_BOT_ID`、`TELEGRAM_WEBHOOK_SECRET` | 客户与机器人的一对一消息 |
+| LINE | `LINE_BOT_USER_ID`、`LINE_CHANNEL_SECRET` | 客户与官方账号的一对一消息 |
+
+上述六个平台目前仅通过本地协议测试。真实账号的权限、订阅和投递仍需企业验证。销售在原渠道发送回复后，回工作台登记。[回调地址与分平台联调步骤](docs/接口与渠道联调.md#社交媒体收件)
 
 ## 仓库结构
 

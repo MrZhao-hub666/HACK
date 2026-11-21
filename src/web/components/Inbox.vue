@@ -262,8 +262,8 @@ function record(type: "notes" | "reply") {
               <b>{{ channels[m.channel] }}</b>
               <small>{{ stamp(m.at) }}</small>
             </div>
-            <p class="original">{{ m.body }}</p>
-            <p v-if="m.attachment">附件 · {{ m.attachment }}</p>
+            <p v-if="m.body" class="original">{{ m.body }}</p>
+            <p v-if="m.attachment">渠道说明 · {{ m.attachment }}</p>
             <p v-if="m.features.translation" class="translation">
               {{ m.features.translation }}
             </p>
@@ -279,6 +279,12 @@ function record(type: "notes" | "reply") {
                 >{{ q }}</span
               >
             </div>
+            <details class="message-source">
+              <summary>查看来源编号</summary>
+              <div>接收账号　{{ m.account }}</div>
+              <div>会话编号　{{ m.thread_key }}</div>
+              <div>消息编号　{{ m.event_id }}</div>
+            </details>
           </div>
         </div>
         <div class="timeline" v-else>

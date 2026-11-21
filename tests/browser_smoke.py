@@ -96,7 +96,21 @@ def main():
                 page.get_by_role("button", name="保存档案").click()
                 expect(card).to_contain_text("可直接采购")
                 page.get_by_role("button", name="渠道模拟器", exact=True).click()
+                for provider in (
+                    "WhatsApp 商业号码",
+                    "Instagram 私信",
+                    "X 私信、提及与回复",
+                    "TikTok 企业私信",
+                    "Telegram 机器人",
+                    "LINE 官方账号",
+                ):
+                    expect(
+                        page.locator("article.companycard").get_by_text(
+                            provider, exact=True
+                        )
+                    ).to_be_visible()
                 page.get_by_role("button", name="填入询价样例").click()
+                page.get_by_label("消息来源").select_option("whatsapp")
                 page.get_by_role("button", name="发送模拟事件").click()
                 expect(page.get_by_text("消息已入库", exact=False).last).to_be_visible()
                 page.get_by_role("button", name="发送模拟事件").click()
@@ -105,6 +119,9 @@ def main():
                 expect(page.locator("article.detail h2")).to_contain_text(
                     "Nadia · Demo Workshop"
                 )
+                page.get_by_text("查看来源编号", exact=True).click()
+                expect(page.locator(".message-source")).to_contain_text("demo:kooying")
+                expect(page.locator(".bubble b")).to_have_text("WhatsApp 商业号码")
                 page.get_by_label("负责人", exact=True).select_option("陈舟")
                 expect(page.get_by_label("负责人", exact=True)).to_have_value("陈舟")
                 page.get_by_label("跟进记录", exact=True).fill("已向客户询问每套片数。")

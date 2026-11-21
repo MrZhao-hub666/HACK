@@ -32,6 +32,13 @@ export const channelStyles = {
     tone: "blue",
   },
   facebook_form: { color: "var(--channel-fb-form)", icon: "form", tone: "ice" },
+  whatsapp: { color: "var(--channel-whatsapp)", icon: "chat", tone: "slate" },
+  instagram: { color: "var(--channel-instagram)", icon: "message", tone: "orange" },
+  x_dm: { color: "var(--channel-x-dm)", icon: "chat", tone: "navy" },
+  x_post: { color: "var(--channel-x-post)", icon: "message", tone: "slate" },
+  tiktok: { color: "var(--channel-tiktok)", icon: "message", tone: "navy" },
+  telegram: { color: "var(--channel-telegram)", icon: "chat", tone: "blue" },
+  line: { color: "var(--channel-line)", icon: "chat", tone: "ice" },
   wechat_kf: { color: "var(--channel-wechat)", icon: "chat", tone: "orange" },
   wechat_comment: {
     color: "var(--channel-wechat-comment)",

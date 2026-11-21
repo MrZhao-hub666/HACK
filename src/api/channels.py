@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import struct
 import time
 from datetime import datetime, timezone
@@ -18,11 +19,57 @@ from fastapi.responses import PlainTextResponse
 from starlette.concurrency import run_in_threadpool
 
 from .db import database, utc
+from . import social
 from .inbox import receive
 from .models import Event
 
 router = APIRouter(prefix="/webhooks")
 wx_lock = Lock()
+
+# Each parser receives its configured destination ID(s) after authentication.
+SOCIAL_RECEIVERS = {
+    "whatsapp": (
+        "WhatsApp 商业号码",
+        "WA_PHONE_NUMBER_IDS",
+        "WA_APP_SECRET",
+        social.whatsapp,
+    ),
+    "instagram": (
+        "Instagram 私信",
+        "IG_ACCOUNT_IDS",
+        "IG_APP_SECRET",
+        social.instagram,
+    ),
+    "x": ("X 私信、提及与回复", "X_USER_IDS", "X_CLIENT_SECRET", social.x_activity),
+    "tiktok": (
+        "TikTok 企业私信",
+        "TIKTOK_BUSINESS_IDS",
+        "TIKTOK_APP_SECRET",
+        social.tiktok,
+    ),
+    "telegram": (
+        "Telegram 机器人",
+        "TELEGRAM_BOT_ID",
+        "TELEGRAM_WEBHOOK_SECRET",
+        social.telegram,
+    ),
+    "line": ("LINE 官方账号", "LINE_BOT_USER_ID", "LINE_CHANNEL_SECRET", social.line),
+}
+VERIFY_TOKENS = {"whatsapp": "WA_VERIFY_TOKEN", "instagram": "IG_VERIFY_TOKEN"}
+
+
+def receiver_settings():
+    yield (
+        "meta",
+        "Facebook / Messenger",
+        ("META_APP_SECRET", "META_PAGE_ID", "META_VERIFY_TOKEN"),
+    )
+    yield "wechat", "微信客服", ("WX_AES_KEY", "WX_TOKEN", "WX_CORP_ID", "WX_KF_SECRET")
+    for provider, (name, account_key, secret_key, _) in SOCIAL_RECEIVERS.items():
+        keys = [account_key, secret_key]
+        if provider in VERIFY_TOKENS:
+            keys.append(VERIFY_TOKENS[provider])
+        yield provider, name, keys
 
 
 def tracked(provider, operation, *args):
@@ -36,6 +83,8 @@ def tracked(provider, operation, *args):
                 (provider, utc(), "接收失败，请检查授权与渠道重试记录"),
             )
         raise
+    if result == 0:
+        return result
     at = utc()
     with database(True) as db:
         db.execute(
@@ -67,9 +116,13 @@ def remote_json(method, url, **kwargs):
 
 @router.get("/meta", response_class=PlainTextResponse)
 def meta_verify(request: Request):
+    return meta_challenge(request, "META_VERIFY_TOKEN")
+
+
+def meta_challenge(request, verify_key):
     q = request.query_params
     if q.get("hub.mode") != "subscribe" or not hmac.compare_digest(
-        q.get("hub.verify_token", ""), setting("META_VERIFY_TOKEN")
+        q.get("hub.verify_token", "").encode(), setting(verify_key).encode()
     ):
         raise HTTPException(403, "验证失败")
     return q.get("hub.challenge", "")
@@ -290,3 +343,88 @@ async def wx_callback(request: Request):
             event.findtext("Token", ""),
         )
     return "success"
+
+
+@router.get("/whatsapp", response_class=PlainTextResponse)
+def whatsapp_verify(request: Request):
+    return meta_challenge(request, VERIFY_TOKENS["whatsapp"])
+
+
+@router.get("/instagram", response_class=PlainTextResponse)
+def instagram_verify(request: Request):
+    return meta_challenge(request, VERIFY_TOKENS["instagram"])
+
+
+def base64_hmac(secret, body):
+    return base64.b64encode(hmac.digest(secret, body, "sha256")).decode("ascii")
+
+
+@router.get("/x")
+def x_verify(crc_token: str):
+    # CRC challenges are opaque tokens; only sign a token, never an event body.
+    if not re.fullmatch(r"[A-Za-z0-9_+=/.-]{1,512}", crc_token):
+        raise HTTPException(400, "回调验证参数无效")
+    return {
+        "response_token": "sha256="
+        + base64_hmac(setting("X_CLIENT_SECRET").encode(), crc_token.encode())
+    }
+
+
+def verify_social(provider, secret, headers, body):
+    if provider in VERIFY_TOKENS:
+        expected = "sha256=" + hmac.digest(secret, body, "sha256").hex()
+        supplied = headers.get("X-Hub-Signature-256", "")
+    elif provider == "x":
+        expected = "sha256=" + base64_hmac(secret, body)
+        supplied = headers.get("X-Twitter-Webhooks-Signature-OAuth2", "")
+    elif provider == "line":
+        expected = base64_hmac(secret, body)
+        supplied = headers.get("x-line-signature", "")
+    elif provider == "telegram":
+        expected = secret.decode()
+        supplied = headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    else:  # TikTok for Business signs timestamp + "." + raw JSON.
+        parts = {}
+        for item in headers.get("TikTok-Signature", "").split(","):
+            key, _, value = item.strip().partition("=")
+            parts[key] = value
+        stamp = parts.get("t", "")
+        if (
+            not re.fullmatch(r"[0-9]{1,12}", stamp)
+            or abs(time.time() - int(stamp)) > 300
+        ):
+            raise HTTPException(403, "签名时间无效")
+        expected = hmac.digest(secret, stamp.encode() + b"." + body, "sha256").hex()
+        supplied = parts.get("s", "")
+    if not hmac.compare_digest(expected.encode(), supplied.encode()):
+        raise HTTPException(403, "签名无效")
+
+
+def process_social(provider, body, account_config):
+    name, account_key, _, parse = SOCIAL_RECEIVERS[provider]
+    accounts = account_config.strip()
+    if account_key.endswith("_IDS"):
+        accounts = {item.strip() for item in account_config.split(",") if item.strip()}
+    try:
+        # Validate the whole delivery before writing its first message.
+        events = list(parse(json.loads(body), accounts))
+    except (ValueError, KeyError, AttributeError, TypeError, OverflowError, OSError):
+        raise HTTPException(400, "渠道事件格式无效") from None
+    for event in events:
+        receive(event, name + "实时", allow_model=bool(event.body))
+    return len(events)
+
+
+@router.post("/{provider}")
+async def social_callback(provider: str, request: Request):
+    if provider not in SOCIAL_RECEIVERS:
+        raise HTTPException(404, "未知渠道")
+    _, account_key, secret_key, _ = SOCIAL_RECEIVERS[provider]
+    accounts = setting(account_key)
+    secret = setting(secret_key).encode()
+    body = await request.body()
+    verify_social(provider, secret, request.headers, body)
+    accepted = await run_in_threadpool(
+        tracked, provider, process_social, provider, body, accounts
+    )
+    return {"accepted": accepted}
