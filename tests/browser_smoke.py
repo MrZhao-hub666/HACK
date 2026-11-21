@@ -14,6 +14,7 @@ from playwright.sync_api import sync_playwright, expect
 from src.api.main import app
 from src.api.accounts import create_account, encode_password
 from src.api.db import database
+from src.api.domestic import examples as seed_domestic_examples
 
 
 def check_loading_states(context, url):
@@ -262,12 +263,52 @@ def check_customer_statistics(context, url):
         page.close()
 
 
+def check_domestic(page):
+    expect(page.get_by_role("button", name="国内线索", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="买家发现", exact=True).click()
+    page.get_by_label("数据来源").select_option("domestic")
+    expect(page.get_by_text("接入 MediaCrawler 数据")).to_have_count(0)
+    expect(page.locator('input[type="file"]')).to_have_count(0)
+    search = page.get_by_role("button", name="搜索线索", exact=True)
+    expect(search).to_be_enabled()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("刹车片")
+    with page.expect_response(lambda res: "/api/domestic/signals?" in res.url) as response:
+        search.click()
+    assert response.value.ok and response.value.json()["total"] == 0
+    expect(page.get_by_role("status").filter(has_text="尚未接入渠道数据")).to_be_visible()
+
+    seed_domestic_examples()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("")
+    search.click()
+    cards = page.locator(".domestic-card")
+    expect(cards).to_have_count(2)
+    expect(cards.filter(has_text="80 套")).to_contain_text("重卡刹车片")
+    page.get_by_role("textbox", name="关键词", exact=True).fill("29087")
+    page.get_by_role("button", name="搜索线索").click()
+    expect(cards).to_have_count(1)
+    expect(cards.first).to_contain_text("小红书")
+    expect(page.get_by_role("status").filter(has_text="找到 1 条线索")).to_be_visible()
+    page.get_by_role("textbox", name="关键词", exact=True).fill("ZZZ-无匹配-987654")
+    search.click()
+    expect(page.get_by_role("status").filter(has_text="未找到匹配线索")).to_be_visible()
+    expect(cards).to_have_count(0)
+    page.get_by_role("textbox", name="关键词", exact=True).fill("")
+    page.get_by_label("内容意图").select_option("供应推广")
+    page.get_by_role("button", name="搜索线索").click()
+    expect(cards.first).to_contain_text("厂家直销")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.get_by_role("button", name="工作台总览", exact=True).click()
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ.update(
             DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
         )
         os.environ.pop("LLM_API_KEY", None)
+        os.environ.pop("MEDIACRAWLER_URL", None)
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
@@ -320,6 +361,7 @@ def main():
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
                 check_customer_statistics(context, url)
+                check_domestic(page)
                 page.get_by_role("button", name="查看跟进简报").click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")
                 expect(brief.locator(".brief-card")).to_have_count(4)

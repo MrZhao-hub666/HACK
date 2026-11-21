@@ -1,6 +1,8 @@
 import { ref } from "vue";
 import type { Channel, CompanyFields, InquiryRow } from "./types";
 export const channels: Record<Channel, string> = {
+  dy: "抖音评论",
+  xhs: "小红书评论",
   messenger: "Messenger",
   facebook_comment: "Facebook 评论",
   facebook_form: "Facebook 表单",

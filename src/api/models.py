@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Channel = Literal[
     "facebook_comment",
+    "dy",
+    "xhs",
     "messenger",
     "facebook_form",
     "whatsapp",

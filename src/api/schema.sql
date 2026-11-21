@@ -93,3 +93,11 @@ CREATE TABLE IF NOT EXISTS outreach_drafts (
  subject TEXT NOT NULL, body TEXT NOT NULL, actor TEXT NOT NULL, updated TEXT NOT NULL,
  UNIQUE(company_id,event,starts,ends,booth)
 );
+
+CREATE TABLE IF NOT EXISTS domestic_signals (
+ id INTEGER PRIMARY KEY, platform TEXT NOT NULL, kind TEXT NOT NULL, external_id TEXT NOT NULL,
+ parent_id TEXT NOT NULL, body TEXT NOT NULL, keyword TEXT NOT NULL, published TEXT NOT NULL,
+ demo INTEGER NOT NULL DEFAULT 0, company_id INTEGER REFERENCES companies(id),
+ UNIQUE(platform,kind,external_id,demo)
+);
+CREATE INDEX IF NOT EXISTS domestic_published ON domestic_signals(published DESC,id DESC);

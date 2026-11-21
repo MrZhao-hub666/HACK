@@ -31,8 +31,8 @@ import type {
 const props = defineProps<{ user: User }>();
 const emit = defineEmits<{ account: [] }>();
 const descriptions = {
-  inbox: "阅读海外来信、分派负责人，接续每一次跟进。",
-  discovery: "按目标市场寻找买家，核查业务证据与采购能力。",
+  inbox: "阅读各渠道来信、分派负责人，接续每一次跟进。",
+  discovery: "查找企业和社交渠道采购线索，核实来源与采购能力。",
   outreach: "检索展会买家与采购原帖，整理展位邀约名单。",
   companies: "维护企业资料，记录采购角色与下一步行动。",
   simulator: "模拟渠道来信，检查询盘接收、归并与去重。",
@@ -42,7 +42,9 @@ function readRoute(): { page: Page; filter: Filter; id: number } {
   const [id, query] = location.hash.slice(1).split("?");
   const params = new URLSearchParams(query);
   return {
-    page: navPages.find((n) => n.id === id)?.id ?? "overview",
+    page:
+      navPages.find((n) => n.id === (id === "domestic" ? "discovery" : id))?.id ??
+      "overview",
     filter: filters.find((f) => f === params.get("filter")) ?? "全部",
     id: Number(params.get("id")) || 0,
   };
@@ -314,6 +316,8 @@ onUnmounted(() => {
               :companies="companies"
               :config="config"
               @reload="reload"
+              @open="focus"
+              @company="go('companies', null, $event)"
             />
             <Companies
               v-else-if="page === 'companies'"
