@@ -18,6 +18,7 @@ export type Page =
   | "overview"
   | "inbox"
   | "discovery"
+  | "outreach"
   | "companies"
   | "simulator"
   | "manual";
@@ -70,6 +71,8 @@ export interface Candidate extends Omit<CompanyFields, "contact"> {
   checked: string;
 }
 export interface Company extends CompanyFields {
+  outreach_grade?: string | null;
+  outreach_quote?: string | null;
   owner: string;
   id: number;
   source: string;

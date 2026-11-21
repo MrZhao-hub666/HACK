@@ -119,6 +119,57 @@ def check_alternative_buyers(page):
     expect(panel).to_contain_text("负责人 · 林悦")
 
 
+def check_outreach(page):
+    page.get_by_role("button", name="展会拓客", exact=True).click()
+    expect(page.get_by_role("heading", name="LKQ Europe Gmbh")).to_be_visible()
+    page.get_by_label("来源", exact=True).select_option("广交会")
+    page.get_by_role("button", name="检索线索").click()
+    expect(page.get_by_role("heading", name="Command Auto Parts LTD")).to_be_visible()
+    page.get_by_label("来源", exact=True).select_option("上海法兰克福")
+    page.get_by_role("button", name="检索线索").click()
+    page.locator(".companycard").filter(has_text="LKQ").get_by_role(
+        "button", name="登记线索"
+    ).click()
+    page.get_by_role("button", name="保存并核实").click()
+    page.get_by_label("原文摘录").fill("LKQ Europe Gmbh（瑞士）")
+    page.get_by_label("核实理由").fill("展会主办方列为优选买家代表")
+    page.get_by_role("button", name="保存核实结果").click()
+    expect(page.get_by_role("heading", name="采购联系方式")).to_be_visible()
+    page.get_by_role("button", name="填入待核实字段").first.click()
+    page.get_by_role("button", name="保存核实联系方式").click()
+    page.get_by_label("展会名称（邮件用）").fill("Automechanika Shanghai")
+    page.get_by_label("展馆及展位").fill("Hall 2 / B15")
+    page.get_by_label("开始日期").fill("2027-11-21")
+    page.get_by_label("结束日期").fill("2027-11-25")
+    page.get_by_label("收件邮箱", exact=True).select_option(
+        label="lkqe-direct-purchasing@lkqeurope.com · 直接采购部门"
+    )
+    page.get_by_role("button", name="生成英文邀约草稿").click()
+    expect(page.get_by_label("邮件正文")).to_have_value(re.compile("Hall 2 / B15"))
+    page.get_by_label("产品匹配度", exact=True).select_option("C")
+    with page.expect_download() as download:
+        page.get_by_role("link", name="导出当前名单 Excel").click()
+    assert download.value.suggested_filename.endswith(".xlsx")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.get_by_role("button", name="检索来源", exact=True).click()
+    page.get_by_label("来源", exact=True).select_option("社媒原帖")
+    page.get_by_role("button", name="检索线索").click()
+    page.get_by_role("button", name="登记线索").click()
+    page.get_by_role("button", name="保存并核实").click()
+    page.get_by_label("原文摘录").fill("I'd rather show up to a shop with my own parts")
+    page.get_by_role("button", name="辅助判断原帖意图").click()
+    expect(page.get_by_label("来源意图")).to_have_value("待判断")
+    page.get_by_label("处理结论").select_option("排除")
+    page.get_by_label("核实理由").fill("历史车主需求，本轮展会名单只跟进企业采购。")
+    page.get_by_role("button", name="保存核实结果").click()
+    expect(
+        page.locator(".out-row").filter(has_text="Trailer brake shoes")
+    ).to_contain_text("排除")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ.update(
@@ -189,6 +240,7 @@ def main():
                 expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
                 check_alternative_buyers(page)
+                check_outreach(page)
                 page.get_by_role("button", name="买家发现", exact=True).click()
                 expect(page.locator(".companycard")).to_have_count(3)
                 card = page.locator(".companycard").filter(has_text="Swee Siang")

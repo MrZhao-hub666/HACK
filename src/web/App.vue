@@ -3,6 +3,7 @@ import LoadingSkeleton from "./components/LoadingSkeleton.vue";
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import Inbox from "./components/Inbox.vue";
 import Discovery from "./components/Discovery.vue";
+import Outreach from "./components/Outreach.vue";
 import Companies from "./components/Companies.vue";
 import Simulator from "./components/Simulator.vue";
 import Overview from "./components/Overview.vue";
@@ -32,6 +33,7 @@ const emit = defineEmits<{ account: [] }>();
 const descriptions = {
   inbox: "阅读海外来信、分派负责人，接续每一次跟进。",
   discovery: "按目标市场寻找买家，核查业务证据与采购能力。",
+  outreach: "检索展会买家与采购原帖，整理展位邀约名单。",
   companies: "维护企业资料，记录采购角色与下一步行动。",
   simulator: "模拟渠道来信，检查询盘接收、归并与去重。",
   manual: "将原渠道收到的消息补入询盘队列。",
@@ -62,6 +64,7 @@ const failed = ref(""),
   ready = ref(false),
   refreshing = ref(false);
 const brief = ref<InstanceType<typeof Brief> | null>(null),
+  outreach = ref<InstanceType<typeof Outreach> | null>(null),
   mobileNav = ref<HTMLDialogElement | null>(null);
 const page = computed(() => route.value.page);
 const title = computed(() => navPages.find((n) => n.id === page.value)?.name);
@@ -130,7 +133,10 @@ async function reload(manual = false) {
     alternatives.value = feed;
     ready.value = true;
     failed.value = "";
-    if (manual === true) toast("数据已刷新");
+    if (manual === true) {
+      await outreach.value?.refresh();
+      toast("数据已刷新");
+    }
   } catch (e) {
     if (seq === generation) failed.value = errorMessage(e);
   } finally {
@@ -316,6 +322,7 @@ onUnmounted(() => {
               @reload="reload"
               @dismiss="route.id && go('companies')"
             />
+            <Outreach v-else-if="page === 'outreach'" ref="outreach" :focus-id="route.id" @reload="reload" />
             <Simulator
               v-else
               :key="page"

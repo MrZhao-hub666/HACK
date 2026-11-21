@@ -12,6 +12,7 @@ export const navigation: {
       { id: "overview", name: "工作台总览", icon: "dashboard" },
       { id: "inbox", name: "询盘收件箱", icon: "inbox" },
       { id: "discovery", name: "买家发现", icon: "compass" },
+      { id: "outreach", name: "展会拓客", icon: "calendar" },
       { id: "companies", name: "客户档案", icon: "building" },
     ],
   },

@@ -19,6 +19,7 @@ from .db import audit, database, initialize, one, utc
 from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
 from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
+from .outreach import router as outreach_router
 from .prospects import discover, host, save_company, valid_url
 from .seed import seed
 
@@ -99,7 +100,12 @@ def companies():
         return [
             dict(r)
             for r in db.execute(
-                "SELECT * FROM companies WHERE saved=1 ORDER BY id DESC"
+                """SELECT c.*,
+                   (SELECT min(e.fit) FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实') AS outreach_grade,
+                   (SELECT e.quote FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实' ORDER BY e.fit,e.updated DESC LIMIT 1) AS outreach_quote
+                   FROM companies c WHERE c.saved=1 ORDER BY c.id DESC"""
             )
         ]
 
@@ -245,6 +251,7 @@ def link(ident: int, req: Merge, user=Depends(workspace_user)):
 
 
 business.include_router(alternatives_router)
+business.include_router(outreach_router)
 app.include_router(business)
 
 web = Path(__file__).resolve().parent.parent / "web" / "dist"

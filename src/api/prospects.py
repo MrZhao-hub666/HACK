@@ -40,6 +40,11 @@ SAMPLES = [
     ),
 ]
 BUYER_TERMS = {
+    "批发进口商": "commercial vehicle parts importer wholesaler",
+    "经销代理商": "commercial vehicle parts distributor",
+    "车桥厂": "commercial vehicle axle manufacturer purchasing",
+    "OEM采购商": "commercial vehicle OEM supplier purchasing",
+    "ODM采购商": "commercial vehicle ODM procurement",
     "车队": "haulage fleet own workshop",
     "维修厂": "heavy truck brake repair workshop",
     "维修及配件": "commercial truck workshop aftermarket spare parts",

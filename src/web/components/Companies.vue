@@ -104,9 +104,11 @@ onMounted(() => {
         </div>
         <h3>{{ c.name }}</h3>
         <small v-if="c.owner">档案负责人 · {{ c.owner }}</small>
-        <p>{{ c.evidence || "等待补充业务证据" }}</p>
+        <p>{{ c.evidence || c.outreach_quote || "等待补充业务证据" }}</p>
         <small v-if="c.contact">公开业务联系 · {{ c.contact }}</small>
         <div class="tags">
+          <span v-if="c.outreach_grade" class="tag blue">产品匹配 {{ c.outreach_grade }}</span>
+          <a :href="'#outreach?id='+c.id">分级与邀约</a>
           <span class="tag blue">{{ c.kind }}</span>
           <span class="tag">{{ c.country || "地区待核实" }}</span>
           <span class="tag amber">{{ c.procurement }}</span>

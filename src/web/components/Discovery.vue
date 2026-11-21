@@ -63,6 +63,7 @@ onMounted(run);
         <icon name="compass" />
         <h2>发现海外买家</h2>
       </div>
+      <a href="#outreach">展会买家及采购原帖 ↗</a>
       <span class="tag">{{
         form.mode === "samples" ? "公开样例库" : "实时搜索"
       }}</span>
