@@ -14,6 +14,7 @@ from playwright.sync_api import sync_playwright, expect
 from src.api.main import app
 from src.api.accounts import create_account, encode_password
 from src.api.db import database
+from src.api.domestic import examples as seed_domestic_examples
 
 
 def check_loading_states(context, url):
@@ -120,8 +121,11 @@ def check_alternative_buyers(page):
 
 
 def check_domestic(page):
-    page.get_by_role("button", name="国内线索", exact=True).click()
-    page.get_by_role("button", name="载入测试样例").click()
+    expect(page.get_by_role("button", name="国内线索", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="买家发现", exact=True).click()
+    page.get_by_label("数据来源").select_option("domestic")
+    expect(page.get_by_text("接入 MediaCrawler 数据")).to_have_count(0)
+    expect(page.locator('input[type="file"]')).to_have_count(0)
     cards = page.locator(".domestic-card")
     expect(cards).to_have_count(2)
     expect(cards.filter(has_text="80 套")).to_contain_text("重卡刹车片")
@@ -164,6 +168,7 @@ def main():
                 encoded = encode_password(initial)
                 create_account(db, "lin.yue", "林悦", "admin", encoded)
                 create_account(db, "chen.zhou", "陈舟", "sales", encoded)
+            seed_domestic_examples()
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
                 context = browser.new_context(viewport={"width": 1440, "height": 1000})

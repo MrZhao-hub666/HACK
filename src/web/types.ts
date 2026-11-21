@@ -20,7 +20,6 @@ export type Page =
   | "overview"
   | "inbox"
   | "discovery"
-  | "domestic"
   | "companies"
   | "simulator"
   | "manual";
@@ -82,6 +81,23 @@ export interface DiscoveryResult {
   mode: "samples" | "live";
   query: string;
   items: Candidate[];
+}
+export interface DomesticSignal {
+  id: number;
+  platform: Extract<Channel, "dy" | "xhs">;
+  kind: "post" | "comment";
+  body: string;
+  parent_text: string;
+  published: string;
+  keyword: string;
+  signal: string;
+  source_url: string;
+  quantities: string[];
+  codes: string[];
+  owned: boolean;
+  demo: number;
+  company_id: number | null;
+  inquiry_id: number | null;
 }
 export interface Receipt {
   inquiry_id: number;

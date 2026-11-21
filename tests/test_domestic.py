@@ -1,13 +1,13 @@
 import json
 
+import pytest
+from fastapi import HTTPException
+
 from src.api import domestic
 
 
-def upload(client, platform, rows):
-    return client.post(
-        "/api/domestic/import",
-        json={"platform": platform, "document": json.dumps(rows)},
-    )
+def upload(platform, rows):
+    return domestic.import_export(platform, json.dumps(rows).encode("utf8"))
 
 
 def rows(client, **params):
@@ -25,16 +25,16 @@ def test_comments_before_post_and_idempotence(client, monkeypatch):
         "create_time": 1795136400,
         "nickname": "不保存昵称",
     }
-    assert upload(client, "dy", [comment]).json()["inserted"] == 1
+    assert upload("dy", [comment])["inserted"] == 1
     assert rows(client, signal="求购")["total"] == 0
     post = {
         "aweme_id": str(parent),
         "desc": "重卡刹车片维修记录",
         "source_keyword": "卡车维保",
     }
-    assert upload(client, "dy", [post, comment]).json()["unchanged"] == 1
+    assert upload("dy", [post, comment])["unchanged"] == 1
     edited = {**comment, "content": "我们车队需要 100 套，请报价。"}
-    assert upload(client, "dy", [edited, {}]).json() == {
+    assert upload("dy", [edited, {}]) == {
         "inserted": 0,
         "updated": 1,
         "unchanged": 0,
@@ -72,7 +72,7 @@ def test_search_adopt_and_sample_isolation(client, monkeypatch):
         {"note_id": "seller", "desc": "刹车片厂家直销，欢迎询价"},
         {"note_id": "other", "desc": "需要 5 套床单，请报价"},
     ]
-    upload(client, "xhs", input_rows)
+    upload("xhs", input_rows)
     hit = rows(client, platform="xhs", signal="求购")["items"][0]
     assert hit["kind"] == "post" and hit["published"].startswith("2026-")
     assert hit["source_url"] == "https://www.xiaohongshu.com/explore/item"
@@ -92,8 +92,8 @@ def test_search_adopt_and_sample_isolation(client, monkeypatch):
     assert (
         company["evidence_url"] == hit["source_url"] and "小红书" in company["source"]
     )
-    assert client.post("/api/domestic/examples").json()["inserted"] == 4
-    assert client.post("/api/domestic/examples").json()["unchanged"] == 4
+    assert domestic.examples()["inserted"] == 4
+    assert domestic.examples()["unchanged"] == 4
     sample = next(r for r in rows(client, signal="求购")["items"] if r["demo"])
     assert sample["source_url"] == ""
     assert (
@@ -103,18 +103,20 @@ def test_search_adopt_and_sample_isolation(client, monkeypatch):
         == 422
     )
     monkeypatch.setenv("ENABLE_SIMULATOR", "0")
-    assert client.post("/api/domestic/examples").status_code == 403
+    with pytest.raises(HTTPException) as denied:
+        domestic.examples()
+    assert denied.value.status_code == 403
 
 
-def test_webui_contract_and_errors(client, monkeypatch):
+def test_webui_contract_and_errors(client, monkeypatch, capsys, tmp_path):
     monkeypatch.delenv("MEDIACRAWLER_URL", raising=False)
-    assert client.get("/api/domestic/files").status_code == 503
-    assert (
-        client.post(
-            "/api/domestic/sync", json={"path": "../../secrets.json"}
-        ).status_code
-        == 422
-    )
+    with pytest.raises(SystemExit) as unavailable:
+        domestic.main(["list"])
+    assert unavailable.value.code == 1
+    assert "尚未配置 MediaCrawler" in capsys.readouterr().err
+    with pytest.raises(HTTPException) as invalid_path:
+        domestic.sync("../../secrets.json")
+    assert invalid_path.value.status_code == 422
     exports = [{"aweme_id": "123", "title": "需采购卡车刹车片"}]
     files = [
         {"path": r"douyin\json\search_contents_a.json", "record_count": 1},
@@ -133,26 +135,31 @@ def test_webui_contract_and_errors(client, monkeypatch):
         return exports
 
     monkeypatch.setattr(domestic, "read_upstream", upstream)
-    listed = client.get("/api/domestic/files").json()
+    domestic.main(["list"])
+    listed = json.loads(capsys.readouterr().out)
     assert len(listed) == 2
-    assert (
-        client.post("/api/domestic/sync", json={"path": listed[0]["path"]}).json()[
-            "inserted"
-        ]
-        == 1
+    domestic.main(["sync", listed[0]["path"]])
+    assert json.loads(capsys.readouterr().out)["inserted"] == 1
+    domestic.main(["sync", listed[0]["path"]])
+    assert json.loads(capsys.readouterr().out)["unchanged"] == 1
+
+    export = tmp_path / "export.json"
+    export.write_bytes(b"bad")
+    with pytest.raises(SystemExit) as invalid_export:
+        domestic.main(["import", "dy", str(export)])
+    assert invalid_export.value.code == 1
+    assert "UTF-8 JSON" in capsys.readouterr().err
+    export.write_text(
+        json.dumps([{"note_id": "n1", "title": "求购刹车片"}]), encoding="utf-8-sig"
     )
-    assert (
-        client.post("/api/domestic/sync", json={"path": listed[0]["path"]}).json()[
-            "unchanged"
-        ]
-        == 1
-    )
-    assert (
-        client.post(
-            "/api/domestic/import", json={"platform": "dy", "document": "bad"}
-        ).status_code
-        == 422
-    )
-    assert upload(client, "xhs", {}).status_code == 422
+    domestic.main(["import", "xhs", str(export)])
+    assert json.loads(capsys.readouterr().out)["inserted"] == 1
+    assert rows(client, platform="xhs", signal="求购")["total"] == 1
+
+    with pytest.raises(HTTPException) as invalid_rows:
+        upload("xhs", {})
+    assert invalid_rows.value.status_code == 422
+    for endpoint in ("files", "sync", "import", "examples"):
+        assert f"/api/domestic/{endpoint}" not in client.get("/openapi.json").json()["paths"]
     client.cookies.clear()
     assert client.get("/api/domestic/signals").status_code == 401

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Domestic from "./Domestic.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { computed, ref, onMounted } from "vue";
 import { api, errorMessage, kinds, toast, safeLink } from "../shared";
@@ -6,12 +7,18 @@ import Icon from "./Icon.vue";
 import type { Candidate, DiscoveryResult, Company, Config } from "../types";
 
 const props = defineProps<{ companies: Company[]; config: Config }>();
-const emit = defineEmits<{ reload: [] }>();
+const emit = defineEmits<{
+  reload: [];
+  open: [id: number];
+  company: [id: number];
+}>();
+const mode = ref<"samples" | "live" | "domestic">(
+  location.hash === "#domestic" ? "domestic" : "samples",
+);
 const form = ref({
     market: "马来西亚",
     kind: "待识别",
     keywords: "",
-    mode: "samples",
   }),
   result = ref<DiscoveryResult | null>(null),
   error = ref(""),
@@ -19,7 +26,7 @@ const form = ref({
   saving = ref(false);
 const busy = computed(() => searching.value || saving.value);
 async function run() {
-  if (busy.value) return;
+  if (busy.value || mode.value === "domestic") return;
   searching.value = true;
   error.value = "";
   result.value = null;
@@ -27,7 +34,7 @@ async function run() {
     result.value = await api<DiscoveryResult>(
       "/discovery/search",
       "POST",
-      form.value,
+      { ...form.value, mode: mode.value },
     );
   } catch (e) {
     error.value = errorMessage(e);
@@ -61,13 +68,18 @@ onMounted(run);
     <div class="panelhead">
       <div class="sect">
         <icon name="compass" />
-        <h2>发现海外买家</h2>
+        <h2>发现买家</h2>
       </div>
-      <span class="tag">{{
-        form.mode === "samples" ? "公开样例库" : "实时搜索"
-      }}</span>
+      <label class="inputlabel">
+        数据来源
+        <select v-model="mode" :disabled="busy">
+          <option value="samples">已核验样例</option>
+          <option value="live">实时网页搜索</option>
+          <option value="domestic">抖音和小红书</option>
+        </select>
+      </label>
     </div>
-    <form class="formpad" @submit.prevent="run">
+    <form v-if="mode !== 'domestic'" class="formpad" @submit.prevent="run">
       <div class="fields">
         <label
           >目标市场<input
@@ -98,12 +110,6 @@ onMounted(run);
             </option>
           </select>
         </label>
-        <label
-          >数据来源<select v-model="form.mode">
-            <option value="samples">已核验样例</option>
-            <option value="live">实时网页搜索</option>
-          </select>
-        </label>
       </div>
       <div class="actions">
         <label class="search stretch">
@@ -120,7 +126,7 @@ onMounted(run);
       </div>
       <p class="hint">
         {{
-          form.mode === "samples"
+          mode === "samples"
             ? "样例覆盖马来西亚的三家企业，可核对每条原始证据。"
             : config.live_search
               ? "实时查询公开网页，结果需由销售复核。"
@@ -129,7 +135,13 @@ onMounted(run);
       </p>
     </form>
   </div>
-  <div class="panel" v-if="result || searching" :aria-busy="searching">
+  <Domestic
+    v-if="mode === 'domestic'"
+    @reload="emit('reload')"
+    @open="emit('open', $event)"
+    @company="emit('company', $event)"
+  />
+  <div class="panel" v-else-if="result || searching" :aria-busy="searching">
     <div class="panelhead">
       <div class="sect">
         <h2>候选企业</h2>
@@ -173,5 +185,5 @@ onMounted(run);
       没有匹配的企业，可修改地区、类型或关键词。
     </div>
   </div>
-  <div class="notice" role="alert" v-if="error">{{ error }}</div>
+  <div class="notice" role="alert" v-if="error && mode !== 'domestic'">{{ error }}</div>
 </template>

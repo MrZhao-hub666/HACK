@@ -1,58 +1,22 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, errorMessage, stamp } from "../shared";
+import type { DomesticSignal } from "../types";
 import Icon from "./Icon.vue";
 
-defineProps<{ demo: boolean }>();
 const emit = defineEmits<{
   reload: [];
   open: [id: number];
   company: [id: number];
 }>();
-type Platform = "dy" | "xhs";
-interface Signal {
-  id: number;
-  platform: Platform;
-  kind: string;
-  external_id: string;
-  body: string;
-  parent_text: string;
-  published: string;
-  keyword: string;
-  signal: string;
-  source_url: string;
-  quantities: string[];
-  codes: string[];
-  owned: boolean;
-  demo: number;
-  company_id: number | null;
-  inquiry_id: number | null;
-}
-interface SourceFile {
-  platform: Platform;
-  path: string;
-  count: number | null;
-}
-interface Counts {
-  inserted: number;
-  updated: number;
-  unchanged: number;
-  skipped: number;
-}
 const labels = { dy: "抖音", xhs: "小红书" };
 const q = ref(""),
   filter = ref("求购"),
-  platform = ref(""),
-  upstream = ref(false);
-const items = ref<Signal[]>([]),
+  platform = ref("");
+const items = ref<DomesticSignal[]>([]),
   total = ref(0),
   offset = ref(0),
   size = 20;
-const files = ref<SourceFile[]>([]),
-  fileListLoaded = ref(false),
-  selected = ref("");
-const inputPlatform = ref<Platform>("dy"),
-  localFile = ref<File | null>(null);
 const busy = ref(false),
   error = ref(""),
   message = ref(""),
@@ -80,49 +44,20 @@ async function results(start: number) {
   });
   if (platform.value) params.set("platform", platform.value);
   if (filter.value) params.set("signal", filter.value);
-  const res = await api<{ items: Signal[]; total: number; upstream: boolean }>(
+  const res = await api<{ items: DomesticSignal[]; total: number }>(
     "/domestic/signals?" + params,
   );
   items.value = res.items;
   total.value = res.total;
-  upstream.value = res.upstream;
   offset.value = start;
   activeId.value = 0;
 }
-async function listFiles() {
-  await action(async () => {
-    files.value = await api<SourceFile[]>("/domestic/files");
-    fileListLoaded.value = true;
-    selected.value = files.value[0]?.path ?? "";
-  });
-}
-function process(source: "examples" | "import" | "sync") {
-  return action(async () => {
-    let payload: unknown;
-    if (source === "import") {
-      if (!localFile.value) throw Error("请选择 JSON 文件。");
-      if (localFile.value.size > 4 * 1024 * 1024)
-        throw Error("请选择 4 MiB 以内的文件。");
-      payload = {
-        platform: inputPlatform.value,
-        document: await localFile.value.text(),
-      };
-    }
-    if (source === "sync") payload = { path: selected.value };
-    const c = await api<Counts>("/domestic/" + source, "POST", payload);
-    message.value = `新增 ${c.inserted} 条，更新 ${c.updated} 条，重复 ${c.unchanged} 条，跳过 ${c.skipped} 条。`;
-    await results(0);
-  });
-}
-function chooseFile(event: Event) {
-  localFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
-}
-function startAdopt(item: Signal) {
+function startAdopt(item: DomesticSignal) {
   activeId.value = item.id;
   companyName.value = "";
   country.value = "";
 }
-function adopt(item: Signal) {
+function adopt(item: DomesticSignal) {
   return action(async () => {
     const res = await api<{ company_id: number }>(
       `/domestic/signals/${item.id}/adopt`,
@@ -135,7 +70,7 @@ function adopt(item: Signal) {
     message.value = "已关联客户档案。";
   });
 }
-function toInbox(item: Signal) {
+function toInbox(item: DomesticSignal) {
   return action(async () => {
     const res = await api<{ inquiry_id: number }>(
       `/domestic/signals/${item.id}/inquiry`,
@@ -150,12 +85,6 @@ onMounted(() => action(() => results(0)));
 
 <template>
   <section class="panel">
-    <div class="panelhead">
-      <div class="sect">
-        <Icon name="search" />
-        <h2>检索已导入内容</h2>
-      </div>
-    </div>
     <form class="formpad" @submit.prevent="action(() => results(0))">
       <div class="fields">
         <label
@@ -182,95 +111,9 @@ onMounted(() => action(() => results(0)));
       </div>
       <div class="actions">
         <button class="primary" :disabled="busy">搜索线索</button>
-        <template v-if="q.trim()">
-          <a
-            v-if="platform !== 'xhs'"
-            :href="
-              'https://www.douyin.com/search/' + encodeURIComponent(q.trim())
-            "
-            target="_blank"
-            rel="noopener noreferrer"
-            >去抖音搜索 <Icon name="external" size="sm"
-          /></a>
-          <a
-            v-if="platform !== 'dy'"
-            :href="
-              'https://www.xiaohongshu.com/search_result?keyword=' +
-              encodeURIComponent(q.trim())
-            "
-            target="_blank"
-            rel="noopener noreferrer"
-            >去小红书搜索 <Icon name="external" size="sm"
-          /></a>
-        </template>
       </div>
     </form>
   </section>
-  <details class="panel domestic-source" :open="total === 0 || undefined">
-    <summary><Icon name="layers" /> 接入 MediaCrawler 数据</summary>
-    <div class="formpad">
-      <div class="fields">
-        <label
-          >导入平台<select v-model="inputPlatform">
-            <option value="dy">抖音</option>
-            <option value="xhs">小红书</option>
-          </select></label
-        >
-        <label
-          >本地 JSON 导出<input
-            type="file"
-            accept=".json,application/json"
-            @change="chooseFile"
-        /></label>
-      </div>
-      <div class="actions">
-        <button
-          class="ghost"
-          :disabled="busy || !localFile"
-          @click="process('import')"
-        >
-          导入文件
-        </button>
-        <button
-          v-if="demo"
-          class="ghost"
-          :disabled="busy"
-          @click="process('examples')"
-        >
-          载入测试样例
-        </button>
-      </div>
-      <template v-if="upstream">
-        <div class="actions">
-          <button class="ghost" :disabled="busy" @click="listFiles">
-            读取 WebUI 文件列表
-          </button>
-        </div>
-        <div class="actions" v-if="files.length">
-          <label class="stretch"
-            >WebUI 导出文件<select v-model="selected">
-              <option v-for="file in files" :key="file.path" :value="file.path">
-                {{ file.path
-                }}{{ file.count == null ? "" : " · " + file.count + " 条" }}
-              </option>
-            </select></label
-          ><button
-            class="primary"
-            :disabled="busy || !selected"
-            @click="process('sync')"
-          >
-            同步所选文件
-          </button>
-        </div>
-        <p class="hint" v-else-if="fileListLoaded">
-          WebUI 中没有抖音或小红书的内容、评论 JSON 文件。
-        </p>
-      </template>
-      <p v-else class="hint">
-        连接独立 WebUI 后可直接同步导出文件；当前可从本地导入。
-      </p>
-    </div>
-  </details>
   <div class="notice" role="alert" v-if="error">{{ error }}</div>
   <p class="hint" role="status" v-if="message">{{ message }}</p>
   <section class="panel" :aria-busy="busy">
@@ -282,7 +125,7 @@ onMounted(() => action(() => results(0)));
     </div>
     <p v-if="!items.length" class="empty">
       {{
-        busy ? "读取中…" : "没有匹配的记录。可调整筛选条件或导入一份渠道数据。"
+        busy ? "读取中…" : "没有匹配的社交线索。可调整关键词或筛选条件。"
       }}
     </p>
     <div v-else class="cards discovery-cards">
@@ -393,15 +236,6 @@ onMounted(() => action(() => results(0)));
   </section>
 </template>
 <style scoped>
-.domestic-source summary {
-  cursor: pointer;
-  padding: 1rem 1.25rem;
-  font-weight: 650;
-}
-.domestic-source summary svg {
-  vertical-align: middle;
-}
-.domestic-source .fields label,
 .domestic-card,
 .domestic-card form {
   min-width: 0;
@@ -419,13 +253,7 @@ onMounted(() => action(() => results(0)));
   display: grid;
   gap: 0.25rem;
 }
-.domestic-source .actions,
 .domestic-card .actions {
   flex-wrap: wrap;
-}
-.domestic-source input,
-.domestic-source select {
-  max-width: 100%;
-  min-width: 0;
 }
 </style>

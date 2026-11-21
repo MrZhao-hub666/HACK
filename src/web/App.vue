@@ -3,7 +3,6 @@ import LoadingSkeleton from "./components/LoadingSkeleton.vue";
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import Inbox from "./components/Inbox.vue";
 import Discovery from "./components/Discovery.vue";
-import Domestic from "./components/Domestic.vue";
 import Companies from "./components/Companies.vue";
 import Simulator from "./components/Simulator.vue";
 import Overview from "./components/Overview.vue";
@@ -31,9 +30,8 @@ import type {
 const props = defineProps<{ user: User }>();
 const emit = defineEmits<{ account: [] }>();
 const descriptions = {
-  inbox: "阅读海外来信、分派负责人，接续每一次跟进。",
-  discovery: "按目标市场寻找买家，核查业务证据与采购能力。",
-  domestic: "从抖音和小红书作品、评论中查找采购原文。",
+  inbox: "阅读各渠道来信、分派负责人，接续每一次跟进。",
+  discovery: "查找企业和社交渠道采购线索，核实来源与采购能力。",
   companies: "维护企业资料，记录采购角色与下一步行动。",
   simulator: "模拟渠道来信，检查询盘接收、归并与去重。",
   manual: "将原渠道收到的消息补入询盘队列。",
@@ -42,7 +40,9 @@ function readRoute(): { page: Page; filter: Filter; id: number } {
   const [id, query] = location.hash.slice(1).split("?");
   const params = new URLSearchParams(query);
   return {
-    page: navPages.find((n) => n.id === id)?.id ?? "overview",
+    page:
+      navPages.find((n) => n.id === (id === "domestic" ? "discovery" : id))?.id ??
+      "overview",
     filter: filters.find((f) => f === params.get("filter")) ?? "全部",
     id: Number(params.get("id")) || 0,
   };
@@ -307,11 +307,6 @@ onUnmounted(() => {
               v-else-if="page === 'discovery'"
               :companies="companies"
               :config="config"
-              @reload="reload"
-            />
-            <Domestic
-              v-else-if="page === 'domestic'"
-              :demo="config.demo"
               @reload="reload"
               @open="focus"
               @company="go('companies', null, $event)"

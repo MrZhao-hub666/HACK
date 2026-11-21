@@ -1,8 +1,10 @@
 """Read MediaCrawler exports as evidence for domestic prospect discovery."""
 
+import argparse
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import quote
@@ -12,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field
 
 from .auth import workspace_user
-from .db import database, one, utc
+from .db import database, initialize, one, utc
 from .intelligence import extract
 from .inbox import receive
 from .models import Company, Event, Input
@@ -47,15 +49,6 @@ NEGATIVE = re.compile(
 )
 
 
-class ImportFile(Input):
-    platform: Platform
-    document: str = Field(min_length=2, max_length=MAX_BYTES)
-
-
-class SyncFile(Input):
-    path: str = Field(min_length=1, max_length=240)
-
-
 class Adopt(Input):
     name: str = Field(min_length=1, max_length=200)
     country: str = Field(default="", max_length=80)
@@ -87,13 +80,12 @@ def read_upstream(endpoint, params=None):
                             413, "单次读取上限为 4 MiB，请拆分导出文件。"
                         )
         return json.loads(data.decode("utf-8-sig"))
-    except (httpx.HTTPError, httpx.InvalidURL, UnicodeError, ValueError) as exc:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError, RecursionError) as exc:
         raise HTTPException(
             502, "无法读取 MediaCrawler 数据，请检查地址、服务和 JSON 导出。"
         ) from exc
 
 
-@router.get("/files")
 def files():
     payload = read_upstream("files", {"file_type": "json"})
     if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
@@ -195,9 +187,8 @@ def ingest(platform, rows, demo=False):
     return stats
 
 
-@router.post("/sync")
-def sync(req: SyncFile):
-    result = identify_file(req.path)
+def sync(path):
+    result = identify_file(path)
     if not result:
         raise HTTPException(422, "请选择抖音或小红书的内容、评论 JSON 文件。")
     return ingest(
@@ -206,18 +197,16 @@ def sync(req: SyncFile):
     )
 
 
-@router.post("/import")
-def upload(req: ImportFile):
-    if len(req.document.encode("utf8")) > MAX_BYTES:
+def import_export(platform, document):
+    if len(document) > MAX_BYTES:
         raise HTTPException(413, "单个文件不能超过 4 MiB。")
     try:
-        rows = json.loads(req.document.lstrip("\ufeff"))
+        rows = json.loads(document.decode("utf-8-sig"))
     except (ValueError, RecursionError) as exc:
-        raise HTTPException(422, "文件不是有效的 JSON。") from exc
-    return ingest(req.platform, rows)
+        raise HTTPException(422, "文件不是有效的 UTF-8 JSON。") from exc
+    return ingest(platform, rows)
 
 
-@router.post("/examples")
 def examples():
     if os.getenv("ENABLE_SIMULATOR", "1") != "1":
         raise HTTPException(403, "测试样例入口已关闭。")
@@ -322,11 +311,7 @@ def search(
             if offset <= total < offset + limit:
                 items.append(describe(row))
             total += 1
-    return {
-        "items": items,
-        "total": total,
-        "upstream": bool(os.getenv("MEDIACRAWLER_URL", "").strip()),
-    }
+    return {"items": items, "total": total}
 
 
 @router.post("/signals/{ident}/adopt")
@@ -378,3 +363,43 @@ def as_inquiry(ident: int, user=Depends(workspace_user)):
     return receive(
         event, source + " · MediaCrawler（销售核实）", actor=user["display_name"]
     )
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="维护抖音和小红书线索数据")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("list", help="列出 MediaCrawler WebUI 的可同步导出")
+    sync_file = commands.add_parser("sync", help="同步一份 WebUI 导出")
+    sync_file.add_argument("path")
+    import_file = commands.add_parser("import", help="从文件或标准输入导入 JSON")
+    import_file.add_argument("platform", choices=LABELS)
+    import_file.add_argument("filename", help="使用 - 从标准输入读取")
+    commands.add_parser("examples", help="载入带标记的演示线索")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "list":
+            result = files()
+        else:
+            initialize()
+            if args.command == "sync":
+                result = sync(args.path)
+            elif args.command == "import":
+                try:
+                    if args.filename == "-":
+                        document = sys.stdin.buffer.read(MAX_BYTES + 1)
+                    else:
+                        with open(args.filename, "rb") as source:
+                            document = source.read(MAX_BYTES + 1)
+                except OSError:
+                    parser.exit(1, "无法读取导出文件。\n")
+                result = import_export(args.platform, document)
+            else:
+                result = examples()
+    except HTTPException as exc:
+        parser.exit(1, f"{exc.detail}\n")
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

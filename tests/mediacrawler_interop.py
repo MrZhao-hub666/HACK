@@ -1,6 +1,7 @@
 """Run against the real upstream data router from an optional MediaCrawler checkout."""
 
 import argparse
+import io
 import importlib.util
 import json
 import os
@@ -8,15 +9,24 @@ import socket
 import tempfile
 import threading
 import time
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.api import domestic
 from src.api.accounts import create_account, encode_password
 from src.api.db import database
 from src.api.main import app
+
+
+def command(*args):
+    output = io.StringIO()
+    with redirect_stdout(output):
+        domestic.main(list(args))
+    return json.loads(output.getvalue())
 
 
 def run(checkout):
@@ -80,16 +90,10 @@ def run(checkout):
                     "/api/auth/login",
                     json={"username": "mc.test", "password": "Upstream-test-only-123"},
                 ).raise_for_status()
-                listed = c.get("/api/domestic/files").json()
+                listed = command("list")
                 assert len(listed) == 3
                 for target, expected in [("inserted", 103), ("unchanged", 103)]:
-                    counts = []
-                    for file in listed:
-                        response = c.post(
-                            "/api/domestic/sync", json={"path": file["path"]}
-                        )
-                        response.raise_for_status()
-                        counts.append(response.json()[target])
+                    counts = [command("sync", file["path"])[target] for file in listed]
                     assert sum(counts) == expected, counts
                 hits = c.get("/api/domestic/signals", params={"signal": "求购"}).json()
                 assert hits["total"] == 2
