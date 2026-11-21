@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LoadingSkeleton from "./components/LoadingSkeleton.vue";
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import Inbox from "./components/Inbox.vue";
 import Discovery from "./components/Discovery.vue";
@@ -112,6 +113,7 @@ let generation = 0;
 async function reload(manual = false) {
   const seq = ++generation;
   refreshing.value = true;
+  if (!ready.value) failed.value = "";
   try {
     const [r, c, conf] = await Promise.all([
       api<InquiryRow[]>("/inquiries"),
@@ -265,6 +267,7 @@ onUnmounted(() => {
           :metrics="metrics"
           :actor="actor"
           :ready="ready"
+          :loading="!ready && !failed"
           @navigate="go"
           @open="focus"
           @brief="showBrief"
@@ -312,7 +315,21 @@ onUnmounted(() => {
               @open="focus"
             />
           </template>
-          <div v-else-if="!failed" class="panel empty">正在读取工作台…</div>
+          <div v-else-if="!failed" class="panel" aria-busy="true">
+            <div class="panelhead" aria-hidden="true">
+              <span class="sk-shape sk-short"></span>
+            </div>
+            <LoadingSkeleton
+              :layout="
+                page === 'inbox'
+                  ? 'inbox'
+                  : page === 'companies'
+                    ? 'cards'
+                    : 'form'
+              "
+              :label="'正在加载' + title"
+            />
+          </div>
         </template>
       </div>
     </main>

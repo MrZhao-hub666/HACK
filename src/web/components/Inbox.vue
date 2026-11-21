@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed, watch } from "vue";
 import {
   api,
@@ -187,7 +188,7 @@ function record(type: "notes" | "reply") {
           :key="r.id"
           :class="{ picked: selected === r.id }"
           :aria-pressed="selected === r.id"
-          @click="open(r.id)"
+          @click="selected !== r.id && open(r.id)"
         >
           <div class="line">
             <span class="channel"
@@ -219,6 +220,10 @@ function record(type: "notes" | "reply") {
         <div class="empty" v-if="!visible.length">没有符合条件的询盘</div>
       </div>
       <article class="detail" v-if="item" :key="item.id">
+        <div v-if="error" class="notice" role="alert">
+          {{ error }}
+          <button class="textbtn" @click="open(selected, false)">重试</button>
+        </div>
         <div class="line">
           <span class="micro"
             >询盘 #{{ String(item.id).padStart(4, "0") }}</span
@@ -430,8 +435,13 @@ function record(type: "notes" | "reply") {
           </button>
         </div>
       </article>
-      <div v-else class="empty">
-        {{ error || (loading ? "读取中…" : "选择询盘查看消息")
+      <LoadingSkeleton
+        v-else-if="loading"
+        layout="detail"
+        label="正在加载询盘详情"
+      />
+      <div v-else class="empty" :role="error ? 'alert' : undefined">
+        {{ error || "选择询盘查看消息"
         }}<button v-if="error" class="ghost" @click="open(selected, false)">
           重试
         </button>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed } from "vue";
 import { stamp } from "../shared";
 import Icon from "./Icon.vue";
@@ -97,7 +98,7 @@ defineExpose({ show });
         {{ failed }}
         <button class="textbtn" @click="emit('reload')">重试</button>
       </div>
-      <div v-else-if="ready" :key="topic" class="brief-result">
+      <div v-if="ready" :key="topic" class="brief-result">
         <div class="brief-summary">
           <small><icon name="spark" size="sm" />本地工作台摘要</small>
           <p>{{ summary }}</p>
@@ -122,7 +123,11 @@ defineExpose({ show });
           <icon name="check" />当前没有此类待办
         </div>
       </div>
-      <div v-else class="empty">正在读取销售数据…</div>
+      <LoadingSkeleton
+        v-else-if="!failed"
+        layout="rows"
+        label="正在加载跟进简报"
+      />
     </div>
   </dialog>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import LoadingSkeleton from "./LoadingSkeleton.vue";
+import { computed, ref, onMounted } from "vue";
 import { api, errorMessage, kinds, toast, safeLink } from "../shared";
 import Icon from "./Icon.vue";
 import type { Candidate, DiscoveryResult, Company, Config } from "../types";
@@ -14,9 +15,12 @@ const form = ref({
   }),
   result = ref<DiscoveryResult | null>(null),
   error = ref(""),
-  busy = ref(false);
+  searching = ref(false),
+  saving = ref(false);
+const busy = computed(() => searching.value || saving.value);
 async function run() {
-  busy.value = true;
+  if (busy.value) return;
+  searching.value = true;
   error.value = "";
   result.value = null;
   try {
@@ -28,7 +32,7 @@ async function run() {
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
-    busy.value = false;
+    searching.value = false;
   }
 }
 function saved(c: Candidate) {
@@ -37,7 +41,8 @@ function saved(c: Candidate) {
   );
 }
 async function adopt(c: Candidate) {
-  busy.value = true;
+  if (busy.value) return;
+  saving.value = true;
   try {
     await api("/companies", "POST", c);
     emit("reload");
@@ -45,7 +50,7 @@ async function adopt(c: Candidate) {
   } catch (e) {
     toast(errorMessage(e));
   } finally {
-    busy.value = false;
+    saving.value = false;
   }
 }
 onMounted(run);
@@ -110,7 +115,7 @@ onMounted(run);
           />
         </label>
         <button class="primary" :disabled="busy">
-          {{ busy ? "检索中…" : "搜索企业" }}<icon name="arrow" />
+          {{ searching ? "检索中…" : "搜索企业" }}<icon name="arrow" />
         </button>
       </div>
       <p class="hint">
@@ -124,17 +129,18 @@ onMounted(run);
       </p>
     </form>
   </div>
-  <div class="panel" v-if="result">
+  <div class="panel" v-if="result || searching" :aria-busy="searching">
     <div class="panelhead">
       <div class="sect">
         <h2>候选企业</h2>
-        <span class="count">{{ result.items.length }}</span>
+        <span v-if="result" class="count">{{ result.items.length }}</span>
       </div>
-      <span class="meta">{{
+      <span class="meta" v-if="result">{{
         result.mode === "samples" ? "已核验样例" : "实时网页搜索"
       }}</span>
     </div>
-    <div class="cards discovery-cards">
+    <LoadingSkeleton v-if="searching" layout="cards" label="正在查找候选企业" />
+    <div v-else-if="result" class="cards discovery-cards">
       <article
         class="companycard"
         v-for="c in result.items"
@@ -155,15 +161,15 @@ onMounted(run);
             :href="safeLink(c.evidence_url)"
             target="_blank"
             rel="noopener noreferrer"
-            >查看依据 <icon name="external" size="sm" /></a
-          >
+            >查看依据 <icon name="external" size="sm"
+          /></a>
           <button class="ghost" @click="adopt(c)" :disabled="busy || saved(c)">
             {{ saved(c) ? "已存入档案" : "加入客户档案" }}
           </button>
         </div>
       </article>
     </div>
-    <div class="empty" v-if="!result.items.length">
+    <div class="empty" v-if="result && !result.items.length">
       没有匹配的企业，可修改地区、类型或关键词。
     </div>
   </div>

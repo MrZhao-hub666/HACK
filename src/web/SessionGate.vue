@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LoadingSkeleton from "./components/LoadingSkeleton.vue";
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import App from "./App.vue";
 import LoginView from "./components/LoginView.vue";
@@ -37,6 +38,10 @@ function updated(value: Session | null) {
 }
 async function restore() {
   const seq = ++revision;
+  if (problem.value) {
+    checking.value = true;
+    problem.value = "";
+  }
   try {
     const value = await api<Session>("/auth/me");
     if (seq === revision) apply(value);
@@ -68,9 +73,12 @@ onBeforeUnmount(() => {
   <div v-if="checking || problem" class="session-loading">
     <div class="panel">
       <img src="/assets/kooying-logo.png" alt="冠英" width="160" />
-      <p :role="problem ? 'alert' : 'status'">
-        {{ problem || "正在读取登录状态…" }}
-      </p>
+      <LoadingSkeleton
+        v-if="checking"
+        layout="lines"
+        label="正在读取登录状态"
+      />
+      <p v-else role="alert">{{ problem }}</p>
       <button v-if="problem" class="ghost" @click="restore">重新连接</button>
     </div>
   </div>

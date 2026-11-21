@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { onMounted, ref } from "vue";
 import Icon from "./Icon.vue";
 import { api, errorMessage } from "../shared";
 import type { User } from "../types";
 
 defineProps<{ currentId: number }>();
-const users = ref<User[]>([]),
+const users = ref<User[] | null>(null),
   action = ref<"list" | "create" | "reset">("list");
 const target = ref<User | null>(null),
   username = ref(""),
@@ -83,12 +84,19 @@ onMounted(load);
   <section class="member-section">
     <div v-if="action === 'list'">
       <div class="line">
-        <h3>团队成员 · {{ users.length }}</h3>
+        <h3>
+          团队成员<span v-if="users"> · {{ users.length }}</span>
+        </h3>
         <button class="primary" @click="start('create')">
           <Icon name="addUser" size="sm" />添加成员
         </button>
       </div>
-      <ul class="member-list">
+      <LoadingSkeleton
+        v-if="!users && !error"
+        layout="rows"
+        label="正在加载团队成员"
+      />
+      <ul v-else-if="users" class="member-list">
         <li v-for="m in users" :key="m.id">
           <div>
             <strong>{{ m.display_name }}</strong>
