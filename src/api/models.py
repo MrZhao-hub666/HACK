@@ -25,6 +25,8 @@ CompanyKind = Literal[
     "批发进口商", "经销代理商", "车桥厂", "OEM采购商", "ODM采购商",
 ]
 Procurement = Literal["待核实", "可直接采购", "委托采购", "仅转售"]
+ContactGender = Literal["", "女", "男", "其他", "不便透露"]
+ContactAgeBand = Literal["", "under25", "25-34", "35-44", "45-54", "55-64", "65+"]
 State = Literal["待处理", "跟进中", "等客户补充", "已结束"]
 
 
@@ -65,6 +67,8 @@ class Company(Input):
     website: str = Field(default="", max_length=1400)
     social: str = Field(default="", max_length=1400)
     contact: str = Field(default="", max_length=350)
+    contact_gender: ContactGender = ""
+    contact_age_band: ContactAgeBand = ""
     evidence: str = Field(default="", max_length=2000)
     evidence_url: str = Field(default="", max_length=1400)
     notes: str = Field(default="", max_length=2000)

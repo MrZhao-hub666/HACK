@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { api, errorMessage } from "../shared";
+import { api, errorMessage, toast } from "../shared";
 import type { Session } from "../types";
 
 defineProps<{ username: string }>();
@@ -15,6 +15,7 @@ async function save() {
   error.value = "";
   if (password.value !== confirm.value) {
     error.value = "两次输入的新密码不一致";
+    toast("请核对新密码", "warning");
     return;
   }
   busy.value = true;
@@ -27,6 +28,7 @@ async function save() {
     emit("saved", result);
   } catch (err) {
     error.value = errorMessage(err);
+    toast("密码更新失败", "error");
   } finally {
     busy.value = false;
   }

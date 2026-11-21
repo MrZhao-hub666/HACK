@@ -9,13 +9,14 @@ import Simulator from "./components/Simulator.vue";
 import Overview from "./components/Overview.vue";
 import WorkspaceNav from "./components/WorkspaceNav.vue";
 import Brief from "./components/Brief.vue";
+import { vDismissOnBackdrop } from "./components/dismissOnBackdrop";
 import {
   filters,
   matchesFilter,
   navPages,
   prioritize,
 } from "./components/workspace";
-import { api, clock, notify as notice, toast, errorMessage } from "./shared";
+import { api, clock, toast, errorMessage } from "./shared";
 import Icon from "./components/Icon.vue";
 import type {
   Company,
@@ -59,6 +60,7 @@ const config = ref<Config>({
   demo: false,
   llm: false,
   live_search: false,
+  discovery_markets: [],
   receivers: [],
 });
 const actor = computed(() => props.user.display_name);
@@ -141,7 +143,10 @@ async function reload(manual = false) {
       toast("数据已刷新");
     }
   } catch (e) {
-    if (seq === generation) failed.value = errorMessage(e);
+    if (seq === generation) {
+      failed.value = errorMessage(e);
+      if (manual === true) toast("数据刷新失败", "error");
+    }
   } finally {
     if (seq === generation) refreshing.value = false;
   }
@@ -201,9 +206,9 @@ onUnmounted(() => {
     </aside>
     <dialog
       ref="mobileNav"
+      v-dismiss-on-backdrop
       class="mobile-nav"
       aria-label="工作台导航"
-      @click="$event.target === mobileNav && mobileNav?.close()"
     >
       <div class="sidebar">
         <button
@@ -370,10 +375,5 @@ onUnmounted(() => {
       @company="go('companies', null, $event)"
       @reload="reload"
     />
-    <Transition name="toast"
-      ><div class="toast" v-if="notice" role="status">
-        {{ notice }}
-      </div></Transition
-    >
   </div>
 </template>

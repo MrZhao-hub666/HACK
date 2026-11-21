@@ -46,6 +46,7 @@ export interface Config {
   intents: Intent[];
   demo: boolean;
   live_search: boolean;
+  discovery_markets: { region: string; markets: string[] }[];
   llm: boolean;
   receivers: {
     id: string;
@@ -72,7 +73,11 @@ export interface Candidate extends Omit<CompanyFields, "contact"> {
   source: string;
   checked: string;
 }
-export interface Company extends CompanyFields {
+export interface ContactProfile {
+  contact_gender: "" | "女" | "男" | "其他" | "不便透露";
+  contact_age_band: "" | "under25" | "25-34" | "35-44" | "45-54" | "55-64" | "65+";
+}
+export interface Company extends CompanyFields, ContactProfile {
   archived_at: string | null;
   won_at: string | null;
   won_by: string | null;
@@ -109,6 +114,38 @@ export interface DomesticSearchResult {
   items: DomesticSignal[];
   total: number;
   index_state: "indexed" | "awaiting_sync" | "unconfigured";
+}
+export interface BuyerRecommendation {
+  id: string;
+  title: string;
+  source: string;
+  market: string;
+  direction: string;
+  grade: "A" | "B" | "C";
+  reason: string;
+  evidence: string;
+  url: string;
+  published: string;
+}
+export interface BuyerRecommendations {
+  items: BuyerRecommendation[];
+  directions: string[];
+  configured: boolean;
+  auto_due: boolean;
+  updated: string;
+  error: string;
+  market: string;
+}
+export interface DomesticLiveJob {
+  id: string;
+  q: string;
+  status: "running" | "complete";
+  channels: {
+    platform: DomesticSignal["platform"];
+    status: "queued" | "running" | "login" | "complete" | "failed";
+    count?: number | null;
+    error?: string | null;
+  }[];
 }
 export interface Receipt {
   inquiry_id: number;

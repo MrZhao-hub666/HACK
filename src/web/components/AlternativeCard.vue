@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import Icon from "./Icon.vue";
-import { api, errorMessage, safeLink, stamp } from "../shared";
+import { api, errorMessage, safeLink, stamp, toast } from "../shared";
 import type { Alternative, AlternativeBatch } from "../types";
 
 const props = defineProps<{
@@ -40,6 +40,7 @@ async function findSources() {
     sources.value = response.items;
   } catch (err) {
     error.value = errorMessage(err);
+    toast("竞争线索搜索失败", "error");
   } finally {
     looking.value = false;
   }
@@ -72,8 +73,15 @@ async function update(action: "adopted" | "dismissed" | "proof" | "withdraw") {
     );
     editing.value = false;
     emit("changed", batch);
+    toast({
+      adopted: "已加入客户档案",
+      dismissed: "已标记为不相关",
+      proof: "竞争依据已保存",
+      withdraw: "竞争依据已撤回",
+    }[action]);
   } catch (err) {
     error.value = errorMessage(err);
+    toast("买家线索更新失败", "error");
   } finally {
     busy.value = false;
   }

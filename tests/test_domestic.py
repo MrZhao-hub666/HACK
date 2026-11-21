@@ -108,6 +108,25 @@ def test_search_adopt_and_sample_isolation(client, monkeypatch):
     assert denied.value.status_code == 403
 
 
+def test_overview_recommends_commercial_procurement_with_original_evidence(client):
+    request = "我们车队求购 WVA 29289 刹车片 80 套，请报价。"
+    upload("dy", [
+        {"aweme_id": "buyer", "desc": request},
+        {"aweme_id": "advice", "desc": "重卡刹车片需要换吗？"},
+        {"aweme_id": "seller", "desc": "重卡刹车片厂家直销，欢迎询价。"},
+        {"aweme_id": "motorcycle", "desc": "求购摩托车刹车片，请报价。"},
+    ])
+    domestic.examples()
+    path = "/api/discovery/recommendations"
+    feed = client.get(path).json()
+    assert [(item["direction"], item["grade"], item["evidence"]) for item in feed["items"]] == [
+        ("车队自用", "A", request)
+    ]
+    assert feed["items"][0]["url"] == "https://www.douyin.com/video/buyer"
+    assert not feed["auto_due"]
+    assert client.post(path + "/refresh").status_code == 503
+
+
 def test_webui_contract_and_errors(client, monkeypatch, capsys, tmp_path):
     monkeypatch.delenv("MEDIACRAWLER_URL", raising=False)
     assert rows(client)["index_state"] == "unconfigured"

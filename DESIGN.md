@@ -6,6 +6,8 @@
 
 ## 系统关系
 
+「搜索线索」向本机 MediaCrawler 发起采集，同一次搜索中的平台依次运行，分别记录进度。每批写入独立导出目录，成功结果通过索引中的批次关联展示。导入沿用平台、作品或评论及外部 ID 去重，网络读取在写事务外完成。
+
 抖音和小红书是「买家发现」的一个数据来源。部署端命令读取独立 MediaCrawler WebUI 的数据接口或本地 JSON 文件，写入 `domestic_signals` 索引。平台、作品或评论类型、外部 ID、样例标记组成唯一键。评论可按作品 ID 补充产品上下文。第三方求购可在销售核实企业后关联档案，自有作品评论经确认后复用现有来信去重和分派逻辑。数据库初始化时会为已有部署创建该表。[国内渠道测试手册](docs/MediaCrawler国内渠道联调.md)
 
 ```mermaid
@@ -13,7 +15,7 @@ flowchart TD
   Web["Vue 工作台"] --> Gateway["Nginx"]
   Gateway --> API["FastAPI"]
   API --> Find["企业发现"]
-  Find --> Search["Brave 或样例库"]
+  Find --> Search["Exa、Brave 或样例库"]
   API --> Intake["模拟及补录"]
   Meta["Meta Page"] --> Adapter["签名回调"]
   Social["WhatsApp / Instagram / X / TikTok / Telegram / LINE"] --> SocialAdapter["校验来源、核对账号并解析来信"]

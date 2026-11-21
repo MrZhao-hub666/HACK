@@ -4,6 +4,7 @@ import argparse
 import getpass
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import sqlite3
@@ -16,6 +17,9 @@ from .db import database, initialize
 PUBLIC_FIELDS = "id, username, display_name, role, active, must_change"
 USERNAME = re.compile(r"[a-z0-9][a-z0-9._-]{2,47}\Z")
 ROUNDS = 600_000
+PASSWORD_HASH = re.compile(
+    r"pbkdf2_sha256\$[1-9][0-9]{0,6}\$[0-9a-f]{32}\$[0-9a-f]{64}"
+)
 
 
 def encode_password(password):
@@ -70,30 +74,47 @@ def team(db):
     ]
 
 
+def bootstrap_admin():
+    encoded = os.getenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", "").strip()
+    if not encoded:
+        return
+    with database(True) as db:
+        if db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+            return
+        if not PASSWORD_HASH.fullmatch(encoded):
+            raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD_HASH 格式无效")
+        create_account(db, "admin", "工作台管理员", "admin", encoded, must_change=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description="工作台管理员初始化与密码恢复")
-    parser.add_argument("action", choices=["init-admin", "recover-admin"])
+    parser.add_argument("action", choices=["init-admin", "recover-admin", "hash-password"])
     parser.add_argument("--username", default="admin")
     parser.add_argument("--name", default="工作台管理员")
+    parser.add_argument("--permanent", action="store_true", help="使用输入的密码直接登录")
     args = parser.parse_args()
     password = (
         getpass.getpass("初始密码（至少 12 个字符）: ")
         if sys.stdin.isatty()
         else sys.stdin.readline().rstrip("\r\n")
     )
-    initialize()
     try:
         encoded = encode_password(password)
+        if args.action == "hash-password":
+            print(encoded)
+            return
+        initialize()
+        must_change = not args.permanent
         with database(True) as db:
             if args.action == "init-admin":
                 if db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
                     raise HTTPException(409, "工作台已初始化")
-                create_account(db, args.username, args.name, "admin", encoded)
+                create_account(db, args.username, args.name, "admin", encoded, must_change)
             else:
                 row = db.execute(
-                    """UPDATE users SET password_hash=?,active=1,must_change=1
+                    """UPDATE users SET password_hash=?,active=1,must_change=?
                     WHERE username=? AND role='admin' RETURNING id""",
-                    (encoded, args.username.strip().lower()),
+                    (encoded, int(must_change), args.username.strip().lower()),
                 ).fetchone()
                 if not row:
                     raise HTTPException(404, "管理员账号不存在")
@@ -107,7 +128,10 @@ def main():
                 )
     except HTTPException as exc:
         parser.exit(1, exc.detail + "\n")
-    print("管理员账号已就绪，登录后请修改初始密码。")
+    if must_change:
+        print("管理员账号已就绪，登录后请修改初始密码。")
+    else:
+        print("管理员账号已就绪，可用设定的密码直接登录。")
 
 
 if __name__ == "__main__":

@@ -44,18 +44,9 @@ def initialize():
         for column in ("archived_at", "won_at", "won_by"):
             if column not in company_columns:
                 db.execute(f"ALTER TABLE companies ADD COLUMN {column} TEXT")
-        if "contact" not in {
-            c["name"] for c in db.execute("PRAGMA table_info(companies)")
-        }:
-            db.execute(
-                "ALTER TABLE companies ADD COLUMN contact TEXT NOT NULL DEFAULT ''"
-            )
-        if "owner" not in {
-            c["name"] for c in db.execute("PRAGMA table_info(companies)")
-        }:
-            db.execute(
-                "ALTER TABLE companies ADD COLUMN owner TEXT NOT NULL DEFAULT ''"
-            )
+        for column in ("contact", "owner", "contact_gender", "contact_age_band"):
+            if column not in company_columns:
+                db.execute(f"ALTER TABLE companies ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         if "answered" not in {
             c["name"] for c in db.execute("PRAGMA table_info(messages)")
         }:

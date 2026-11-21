@@ -6,12 +6,13 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from .auth import workspace_user
 from .db import database, initialize, one, utc
@@ -54,6 +55,26 @@ class Adopt(Input):
     country: str = Field(default="", max_length=80)
 
 
+class LiveSearch(Input):
+    id: UUID
+    q: str = Field(min_length=1, max_length=180)
+    platform: Platform | None = None
+
+
+class LiveChannel(Input):
+    platform: Platform
+    status: Literal["queued", "running", "login", "complete", "failed"]
+    count: int | None = None
+    error: str | None = None
+
+
+class LiveJob(Input):
+    id: UUID
+    q: str
+    status: Literal["running", "complete"]
+    channels: list[LiveChannel]
+
+
 def identify_file(path):
     clean = path.replace("\\", "/")
     match = FILES.fullmatch(clean)
@@ -62,14 +83,17 @@ def identify_file(path):
     return ("dy" if match[1].lower() in ("dy", "douyin") else "xhs", clean)
 
 
-def read_upstream(endpoint, params=None):
+def upstream_request(path, params=None, payload=None):
     root = os.getenv("MEDIACRAWLER_URL", "").strip().rstrip("/")
     if not root:
         raise HTTPException(503, "尚未配置 MediaCrawler WebUI 地址，可先导入 JSON。")
     try:
         with httpx.Client(timeout=12, trust_env=False) as client:
             with client.stream(
-                "GET", root + "/api/data/" + endpoint, params=params
+                "GET" if payload is None else "POST",
+                root + path,
+                params=params,
+                json=payload,
             ) as res:
                 res.raise_for_status()
                 data = bytearray()
@@ -80,10 +104,35 @@ def read_upstream(endpoint, params=None):
                             413, "单次读取上限为 4 MiB，请拆分导出文件。"
                         )
         return json.loads(data.decode("utf-8-sig"))
+    except httpx.HTTPStatusError as exc:
+        if path.startswith("/api/workbench/searches"):
+            if exc.response.status_code == 409:
+                raise HTTPException(409, "采集任务正在运行或尚未完成，请稍后重试。") from exc
+            if exc.response.status_code == 404:
+                message = (
+                    "MediaCrawler 尚未启用工作台实时采集接口。"
+                    if payload is not None
+                    else "找不到采集任务，请重新搜索。"
+                )
+                raise HTTPException(404, message) from exc
+        raise HTTPException(
+            502, "无法读取 MediaCrawler 数据，请检查地址、服务和 JSON 导出。"
+        ) from exc
     except (httpx.HTTPError, httpx.InvalidURL, ValueError, RecursionError) as exc:
         raise HTTPException(
             502, "无法读取 MediaCrawler 数据，请检查地址、服务和 JSON 导出。"
         ) from exc
+
+
+def read_upstream(endpoint, params=None):
+    return upstream_request("/api/data/" + endpoint, params)
+
+
+def live_job(path, payload=None):
+    try:
+        return LiveJob.model_validate(upstream_request(path, payload=payload))
+    except ValidationError as exc:
+        raise HTTPException(502, "MediaCrawler 返回了未知的采集状态。") from exc
 
 
 def files():
@@ -151,40 +200,55 @@ def normalize(platform, row):
     )
 
 
-def ingest(platform, rows, demo=False):
+def validate_rows(rows):
     if not isinstance(rows, list):
         raise HTTPException(422, "需要 MediaCrawler 导出的 JSON 数组。")
     if len(rows) > MAX_ROWS:
         raise HTTPException(413, "单文件支持 5000 条记录，请拆分导出。")
+
+
+def store_signals(db, platform, rows, demo=False, search_id=None):
     stats = {"inserted": 0, "updated": 0, "unchanged": 0, "skipped": 0}
-    with database(True) as db:
-        for item in rows:
-            values = normalize(platform, item)
-            if values is None:
-                stats["skipped"] += 1
-                continue
-            previous = db.execute(
-                """SELECT parent_id,body,keyword,published FROM domestic_signals
-                  WHERE platform=? AND kind=? AND external_id=? AND demo=?""",
-                (*values[:3], demo),
-            ).fetchone()
-            if previous is None:
-                db.execute(
-                    """INSERT INTO domestic_signals(platform,kind,external_id,parent_id,body,keyword,published,demo)
-                        VALUES(?,?,?,?,?,?,?,?)""",
-                    (*values, demo),
-                )
-                stats["inserted"] += 1
-            elif tuple(previous) != values[3:]:
+    for item in rows:
+        values = normalize(platform, item)
+        if values is None:
+            stats["skipped"] += 1
+            continue
+        previous = db.execute(
+            """SELECT id,parent_id,body,keyword,published FROM domestic_signals
+              WHERE platform=? AND kind=? AND external_id=? AND demo=?""",
+            (*values[:3], demo),
+        ).fetchone()
+        if previous is None:
+            signal_id = db.execute(
+                """INSERT INTO domestic_signals(platform,kind,external_id,parent_id,body,keyword,published,demo)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                (*values, demo),
+            ).lastrowid
+            stats["inserted"] += 1
+        else:
+            signal_id = previous["id"]
+            if tuple(previous)[1:] != values[3:]:
                 db.execute(
                     """UPDATE domestic_signals SET parent_id=?,body=?,keyword=?,published=?
-                          WHERE platform=? AND kind=? AND external_id=? AND demo=?""",
-                    (*values[3:], *values[:3], demo),
+                       WHERE id=?""",
+                    (*values[3:], signal_id),
                 )
                 stats["updated"] += 1
             else:
                 stats["unchanged"] += 1
+        if search_id:
+            db.execute(
+                "INSERT OR IGNORE INTO domestic_search_results VALUES (?,?)",
+                (search_id, signal_id),
+            )
     return stats
+
+
+def ingest(platform, rows, demo=False):
+    validate_rows(rows)
+    with database(True) as db:
+        return store_signals(db, platform, rows, demo)
 
 
 def sync(path):
@@ -287,6 +351,58 @@ def describe(row):
     }
 
 
+LIVE_PATH = "/api/workbench/searches"
+
+
+@router.post("/searches", status_code=202)
+def start_live(req: LiveSearch):
+    return live_job(LIVE_PATH, req.model_dump(mode="json"))
+
+
+@router.get("/searches/{ident}")
+def get_live(ident: UUID):
+    return live_job(f"{LIVE_PATH}/{ident}")
+
+
+@router.post("/searches/{ident}/import")
+def import_live(ident: UUID):
+    key = str(ident)
+    with database() as db:
+        existing = db.execute(
+            "SELECT record_count FROM domestic_search_imports WHERE id=?", (key,)
+        ).fetchone()
+        if existing:
+            return {"count": existing["record_count"]}
+    job = get_live(ident)
+    if job.status != "complete":
+        raise HTTPException(409, "采集尚未结束。")
+    batches = {}
+    for channel in job.channels:
+        if channel.status == "complete":
+            rows = upstream_request(f"{LIVE_PATH}/{ident}/records/{channel.platform}")
+            validate_rows(rows)
+            batches[channel.platform] = rows
+    if not batches:
+        raise HTTPException(502, "所有平台采集均失败。")
+
+    with database(True) as db:
+        inserted = db.execute(
+            "INSERT OR IGNORE INTO domestic_search_imports VALUES (?,0)", (key,)
+        ).rowcount
+        if inserted:
+            for platform, rows in batches.items():
+                store_signals(db, platform, rows, search_id=key)
+            db.execute(
+                """UPDATE domestic_search_imports SET record_count=(
+                     SELECT count(*) FROM domestic_search_results WHERE search_id=?
+                   ) WHERE id=?""",
+                (key, key),
+            )
+        return {"count": db.execute(
+            "SELECT record_count FROM domestic_search_imports WHERE id=?", (key,)
+        ).fetchone()["record_count"]}
+
+
 @router.get("/signals")
 def search(
     q: str = Query("", max_length=180),
@@ -294,10 +410,17 @@ def search(
     signal: Signal | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    search_id: Annotated[UUID | None, Query()] = None,
+    real_only: bool = False,
 ):
     sql = (
         JOINED
-        + """ WHERE (:platform IS NULL OR s.platform=:platform) AND
+        + """ WHERE (:platform IS NULL OR s.platform=:platform)
+        AND (:real_only=0 OR s.demo=0)
+        AND (:search_id IS NULL OR EXISTS (
+            SELECT 1 FROM domestic_search_results r
+            WHERE r.search_id=:search_id AND r.signal_id=s.id
+        )) AND
         (instr(lower(s.body),lower(:q)) OR instr(lower(s.keyword),lower(:q)) OR instr(lower(coalesce(p.body,'')),lower(:q))
          OR instr(lower(coalesce(p.keyword,'')),lower(:q)))
         ORDER BY s.published DESC,s.id DESC"""
@@ -305,14 +428,22 @@ def search(
     items = []
     total = 0
     with database() as db:
-        for row in db.execute(sql, {"platform": platform, "q": q.strip()}):
+        for row in db.execute(
+            sql,
+            {
+                "platform": platform, "q": "" if search_id else q.strip(),
+                "search_id": str(search_id) if search_id else None,
+                "real_only": real_only,
+            },
+        ):
             if signal and classify(row["body"], row["parent_text"]) != signal:
                 continue
             if offset <= total < offset + limit:
                 items.append(describe(row))
             total += 1
         indexed = total > 0 or db.execute(
-            "SELECT 1 FROM domestic_signals LIMIT 1"
+            "SELECT 1 FROM domestic_signals WHERE (?=0 OR demo=0) LIMIT 1",
+            (real_only,),
         ).fetchone() is not None
     index_state = "indexed"
     if not indexed:

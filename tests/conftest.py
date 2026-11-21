@@ -11,7 +11,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("DEMO_DATA", "0")
     monkeypatch.setenv("ENABLE_SIMULATOR", "1")
-    for key in ("BRAVE_API_KEY", "LLM_API_KEY", "AUTO_ASSIGN"):
+    for key in (
+        "ADMIN_BOOTSTRAP_PASSWORD_HASH",
+        "EXA_API_KEY",
+        "BRAVE_API_KEY",
+        "LLM_API_KEY",
+        "AUTO_ASSIGN",
+    ):
         monkeypatch.delenv(key, raising=False)
     with TestClient(app) as c:
         password = "Workbench-fixture-123"

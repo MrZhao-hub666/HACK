@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { api, errorMessage, stamp } from "../shared";
-import type { DomesticSearchResult, DomesticSignal } from "../types";
+import { onMounted, onUnmounted, ref } from "vue";
+import { api, ApiError, errorMessage, stamp, toast } from "../shared";
+import type { DomesticLiveJob, DomesticSearchResult, DomesticSignal } from "../types";
 import Icon from "./Icon.vue";
 
 const emit = defineEmits<{
@@ -10,6 +10,14 @@ const emit = defineEmits<{
   company: [id: number];
 }>();
 const labels = { dy: "抖音", xhs: "小红书" };
+const sessionKey = "domestic-search-job";
+const stages = {
+  queued: "排队中",
+  running: "正在采集",
+  login: "请在本机浏览器扫码登录",
+  complete: "采集完成",
+  failed: "采集失败",
+};
 const emptyMessages: Record<DomesticSearchResult["index_state"], string> = {
   indexed: "未找到匹配线索，可调整关键词或筛选条件。",
   awaiting_sync: "后端尚未同步渠道数据，当前没有可检索的线索。",
@@ -26,19 +34,22 @@ const busy = ref(false),
   searching = ref(false),
   searchMessage = ref(""),
   error = ref(""),
-  message = ref(""),
   activeId = ref(0);
 const companyName = ref(""),
   country = ref("");
-async function action(work: () => Promise<void>) {
+const job = ref<DomesticLiveJob | null>(null);
+const searchId = ref("");
+const pending = ref(sessionStorage.getItem(sessionKey) || "");
+let closed = false;
+async function action(work: () => Promise<void>, failureMessage = "") {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
-  message.value = "";
   try {
     await work();
   } catch (e) {
     error.value = errorMessage(e);
+    if (failureMessage) toast(failureMessage, "error");
   } finally {
     busy.value = false;
   }
@@ -48,20 +59,78 @@ async function results(start: number) {
     q: q.value.trim(),
     offset: String(start),
     limit: String(size),
+    real_only: "true",
   });
   if (platform.value) params.set("platform", platform.value);
   if (filter.value) params.set("signal", filter.value);
-  searching.value = true;
-  searchMessage.value = "";
-  try {
-    const res = await api<DomesticSearchResult>("/domestic/signals?" + params);
-    items.value = res.items;
-    total.value = res.total;
-    offset.value = start;
-    activeId.value = 0;
-    searchMessage.value = res.total
-      ? `找到 ${res.total} 条线索。`
+  if (searchId.value) params.set("search_id", searchId.value);
+  const res = await api<DomesticSearchResult>("/domestic/signals?" + params);
+  items.value = res.items;
+  total.value = res.total;
+  offset.value = start;
+  activeId.value = 0;
+  searchMessage.value = searchId.value
+    ? res.total
+      ? `本次找到 ${res.total} 条线索。`
+      : "本次采集没有符合筛选条件的线索。"
+    : res.total
+      ? `已同步 ${res.total} 条线索。`
       : emptyMessages[res.index_state];
+}
+function clearPending() {
+  pending.value = "";
+  sessionStorage.removeItem(sessionKey);
+}
+async function searchLive() {
+  searching.value = true;
+  items.value = [];
+  total.value = 0;
+  searchId.value = "";
+  searchMessage.value = "";
+  job.value = null;
+  try {
+    if (!pending.value) {
+      const started = await api<DomesticLiveJob>("/domestic/searches", "POST", {
+        id: crypto.randomUUID(),
+        q: q.value,
+        platform: platform.value || null,
+      });
+      pending.value = started.id;
+      sessionStorage.setItem(sessionKey, started.id);
+    }
+    const path = "/domestic/searches/" + pending.value;
+    while (!closed) {
+      const status = await api<DomesticLiveJob>(path);
+      if (closed) break;
+      job.value = status;
+      q.value = status.q;
+      platform.value =
+        status.channels.length === 1 ? status.channels[0].platform : "";
+      if (status.status === "complete") {
+        if (status.channels.some((channel) => channel.status === "complete")) {
+          try {
+            await api(path + "/import", "POST");
+          } catch (e) {
+            // A batch rejected for size or format cannot be imported unchanged.
+            if (e instanceof ApiError && (e.status === 413 || e.status === 422)) {
+              clearPending();
+            }
+            throw e;
+          }
+          searchId.value = status.id;
+          await results(0);
+        } else {
+          searchMessage.value = "本次采集失败。";
+          toast("本次渠道采集失败", "error");
+        }
+        clearPending();
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) clearPending();
+    throw e;
   } finally {
     searching.value = false;
   }
@@ -81,8 +150,8 @@ function adopt(item: DomesticSignal) {
     item.company_id = res.company_id;
     activeId.value = 0;
     emit("reload");
-    message.value = "已关联客户档案。";
-  });
+    toast("已关联客户档案");
+  }, "客户档案关联失败");
 }
 function toInbox(item: DomesticSignal) {
   return action(async () => {
@@ -92,30 +161,38 @@ function toInbox(item: DomesticSignal) {
     );
     item.inquiry_id = res.inquiry_id;
     emit("open", res.inquiry_id);
-  });
+    toast("线索已进入询盘收件箱");
+  }, "线索登记失败");
 }
-onMounted(() => action(() => results(0)));
+onMounted(() => action(pending.value ? searchLive : () => results(0)));
+onUnmounted(() => { closed = true; });
 </script>
 
 <template>
   <section class="panel">
-    <form class="formpad" @submit.prevent="action(() => results(0))">
+    <form class="formpad" @submit.prevent="action(searchLive, '渠道搜索失败')">
       <div class="fields">
         <label
           >关键词<input
-            v-model="q"
+            v-model.trim="q"
+            required
+            :disabled="searching"
             maxlength="180"
             placeholder="刹车片、车队或 WVA 编码"
         /></label>
         <label
-          >来源平台<select v-model="platform">
+          >来源平台<select v-model="platform" :disabled="searching">
             <option value="">全部平台</option>
             <option value="dy">抖音</option>
             <option value="xhs">小红书</option>
           </select></label
         >
         <label
-          >内容意图<select v-model="filter">
+          >内容意图<select
+            v-model="filter"
+            :disabled="searching"
+            @change="action(() => results(0))"
+          >
             <option value="">全部意图</option>
             <option>求购</option>
             <option>待判断</option>
@@ -125,20 +202,26 @@ onMounted(() => action(() => results(0)));
       </div>
       <div class="actions">
         <button class="primary" :disabled="busy">
-          {{ searching ? "搜索中…" : "搜索线索" }}
+          {{ searching ? "实时搜索中…" : "搜索线索" }}
         </button>
         <span class="hint" role="status">
-          {{ searching ? "正在检索已同步的线索…" : searchMessage }}
+          {{ searching && !job ? "正在启动实时搜索…" : searchMessage }}
         </span>
       </div>
+      <ul v-if="job" class="search-progress" aria-live="polite">
+        <li v-for="channel in job.channels" :key="channel.platform">
+          {{ labels[channel.platform] }} · {{ stages[channel.status] }}
+          <span v-if="channel.count != null">（{{ channel.count }} 条）</span>
+          <span v-if="channel.error">{{ channel.error }}</span>
+        </li>
+      </ul>
     </form>
   </section>
   <div class="notice" role="alert" v-if="error">{{ error }}</div>
-  <p class="hint" role="status" v-if="message">{{ message }}</p>
   <section v-if="items.length" class="panel" :aria-busy="busy">
     <div class="panelhead">
       <div class="sect">
-        <h2>线索结果</h2>
+        <h2>{{ searchId ? "本次实时搜索" : "已同步线索" }}</h2>
         <span class="count">{{ total }}</span>
       </div>
     </div>
@@ -250,6 +333,10 @@ onMounted(() => action(() => results(0)));
   </section>
 </template>
 <style scoped>
+.search-progress {
+  padding-left: 1.25em;
+  margin: 0.75rem 0 0;
+}
 .domestic-card,
 .domestic-card form {
   min-width: 0;

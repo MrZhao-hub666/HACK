@@ -4,7 +4,8 @@ import { ref, onMounted, onBeforeUnmount } from "vue";
 import App from "./App.vue";
 import LoginView from "./components/LoginView.vue";
 import AccountPanel from "./components/AccountPanel.vue";
-import { api, ApiError, errorMessage, notify } from "./shared";
+import ToastNotifications from "./components/ToastNotifications.vue";
+import { api, ApiError, clearToast, errorMessage } from "./shared";
 import type { Session } from "./types";
 
 const session = ref<Session | null>(null);
@@ -22,7 +23,7 @@ const changes =
 function apply(value: Session | null) {
   ++revision;
   clearTimeout(timer);
-  if (value?.user.id !== session.value?.user.id) notify.value = "";
+  if (value?.user.id !== session.value?.user.id) clearToast();
   session.value = value;
   checking.value = false;
   problem.value = "";
@@ -103,5 +104,6 @@ onBeforeUnmount(() => {
       @authenticated="updated"
       @signed-out="updated(null)"
     />
+    <ToastNotifications />
   </template>
 </template>

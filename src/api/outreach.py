@@ -93,9 +93,18 @@ CATALOG = [
 SCOPES = {
     "上海法兰克福": "Automechanika Shanghai 上海汽配展 买家 buyer",
     "广交会": "广交会 Canton Fair 汽车配件 采购商 buyer",
-    "社媒原帖": "(site:facebook.com OR site:linkedin.com/posts OR site:x.com OR site:threads.com OR site:bsky.app OR site:thetruckersreport.com OR site:bigmacktrucks.com)",
+    "社媒原帖": "",
     "企业采购资料": "commercial vehicle brakes supplier purchasing procurement",
 }
+SOCIAL_SEARCH_DOMAINS = (
+    "facebook.com",
+    "linkedin.com/posts",
+    "x.com",
+    "threads.com",
+    "bsky.app",
+    "thetruckersreport.com",
+    "bigmacktrucks.com",
+)
 
 
 class Search(Input):
@@ -209,6 +218,7 @@ def search(req: Search):
         query = " ".join(
             x for x in [SCOPES[req.source], req.edition, req.market, product] if x
         )
+        domains = SOCIAL_SEARCH_DOMAINS if req.source == "社媒原帖" else ()
         items = [
             Signal(
                 source=req.source,
@@ -218,7 +228,7 @@ def search(req: Search):
                 edition=req.edition,
                 market=req.market,
             )
-            for h in prospects.public_search(query)
+            for h in prospects.public_search(query, domains=domains)
             if req.source != "社媒原帖" or is_social_post(h["url"])
         ]
     else:
@@ -531,9 +541,12 @@ def contact_sources(ident: int, live: bool = False):
         )
     if live:
         domain = prospects.host(buyer["website"])
-        scope = f"site:{domain}" if domain else buyer["country"]
-        query = f'{scope} "{buyer["name"]}" procurement purchasing contact'
-        return {"items": [], "pages": prospects.public_search(query)}
+        market = "" if domain else buyer["country"]
+        query = f'{market} "{buyer["name"]}" procurement purchasing contact'.strip()
+        return {
+            "items": [],
+            "pages": prospects.public_search(query, domains=(domain,) if domain else ()),
+        }
     name = buyer["name"].casefold()
     if name == "saf-holland gmbh":
         name = "saf-holland"

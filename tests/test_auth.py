@@ -15,6 +15,7 @@ PERSONAL = "Personal-password-for-test"
 def browser(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "auth.db"))
     monkeypatch.setenv("DEMO_DATA", "0")
+    monkeypatch.delenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", raising=False)
     with TestClient(app, headers=HEADERS) as client:
         with database(True) as db:
             create_account(
@@ -28,6 +29,23 @@ def login(client, name="admin", password=INITIAL, remember=False):
         "/api/auth/login",
         json={"username": name, "password": password, "remember": remember},
     )
+
+
+def test_fixed_admin_password_survives_an_empty_database_rebuild(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEMO_DATA", "0")
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", encode_password(PERSONAL))
+    for filename in ("before.sqlite3", "rebuilt.sqlite3"):
+        monkeypatch.setenv("DB_PATH", str(tmp_path / filename))
+        with TestClient(app, headers=HEADERS) as client:
+            response = login(client, password=PERSONAL)
+            assert response.is_success
+            assert not response.json()["user"]["must_change"]
+            assert client.get("/api/auth/members").is_success
+
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", encode_password(INITIAL))
+    with TestClient(app, headers=HEADERS) as client:
+        assert login(client, password=INITIAL).status_code == 401
+        assert login(client, password=PERSONAL).is_success
 
 
 def test_session_and_actor(browser):

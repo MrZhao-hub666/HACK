@@ -15,8 +15,9 @@ const emit = defineEmits<{
 const mode = ref<"samples" | "live" | "domestic">(
   location.hash === "#domestic" ? "domestic" : "samples",
 );
+const selectedMarket = ref("马来西亚");
+const customMarket = ref("");
 const form = ref({
-    market: "马来西亚",
     kind: "待识别",
     keywords: "",
   }),
@@ -25,7 +26,7 @@ const form = ref({
   searching = ref(false),
   saving = ref(false);
 const busy = computed(() => searching.value || saving.value);
-async function run() {
+async function run(manual = false) {
   if (busy.value || mode.value === "domestic") return;
   searching.value = true;
   error.value = "";
@@ -34,10 +35,15 @@ async function run() {
     result.value = await api<DiscoveryResult>(
       "/discovery/search",
       "POST",
-      { ...form.value, mode: mode.value },
+      {
+        ...form.value,
+        market: selectedMarket.value || customMarket.value,
+        mode: mode.value,
+      },
     );
   } catch (e) {
     error.value = errorMessage(e);
+    if (manual) toast("买家搜索失败", "error");
   } finally {
     searching.value = false;
   }
@@ -55,7 +61,7 @@ async function adopt(c: Candidate) {
     emit("reload");
     toast("已加入客户档案");
   } catch (e) {
-    toast(errorMessage(e));
+    toast(errorMessage(e), "error");
   } finally {
     saving.value = false;
   }
@@ -80,29 +86,35 @@ onMounted(run);
         </select>
       </label>
     </div>
-    <form v-if="mode !== 'domestic'" class="formpad" @submit.prevent="run">
+    <form v-if="mode !== 'domestic'" class="formpad" @submit.prevent="run(true)">
       <div class="fields">
-        <label
-          >目标市场<input
+        <label>
+          目标市场
+          <select v-model="selectedMarket">
+            <option value="">自定义市场…</option>
+            <optgroup
+              v-for="group in config.discovery_markets"
+              :key="group.region"
+              :label="group.region"
+            >
+              <option
+                v-for="market in group.markets"
+                :key="market"
+                :value="market"
+              >
+                {{ market }}
+              </option>
+            </optgroup>
+          </select>
+        </label>
+        <label v-if="!selectedMarket">
+          自定义市场
+          <input
             required
             maxlength="70"
-            v-model.trim="form.market"
-            list="markets"
+            v-model.trim="customMarket"
+            placeholder="输入国家、地区或城市"
           />
-          <datalist id="markets">
-            <option
-              v-for="x in [
-                '马来西亚',
-                '泰国',
-                '菲律宾',
-                '巴西',
-                '墨西哥',
-                '阿联酋',
-              ]"
-            >
-              {{ x }}
-            </option>
-          </datalist>
         </label>
         <label
           >业务类型<select v-model="form.kind">
@@ -128,10 +140,10 @@ onMounted(run);
       <p class="hint">
         {{
           mode === "samples"
-            ? "样例覆盖马来西亚的三家企业，可核对每条原始证据。"
+            ? "样例仅覆盖马来西亚。搜索其他市场，请切换到实时网页搜索。"
             : config.live_search
               ? "实时查询公开网页，结果需由销售复核。"
-              : "实时模式需在服务端配置 BRAVE_API_KEY。"
+              : "实时模式需在服务端配置 Exa 或 Brave 搜索密钥。"
         }}
       </p>
     </form>
