@@ -1,0 +1,93 @@
+"""Run against an isolated SQLite database and the real Vue UI in Chromium."""
+
+import os
+import socket
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+import uvicorn
+from playwright.sync_api import sync_playwright, expect
+
+from src.api.main import app
+
+
+def main():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ.update(
+            DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
+        )
+        os.environ.pop("LLM_API_KEY", None)
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+        thread = threading.Thread(
+            target=server.run, kwargs={"sockets": [sock]}, daemon=True
+        )
+        thread.start()
+        url = f"http://127.0.0.1:{sock.getsockname()[1]}"
+        try:
+            for _ in range(100):
+                if server.started:
+                    break
+                time.sleep(0.05)
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch()
+                page = browser.new_page(viewport={"width": 1440, "height": 1000})
+                errors = []
+                page.on("pageerror", lambda err: errors.append(str(err)))
+                page.goto(url)
+                expect(page.locator(".ticket")).to_have_count(4)
+                page.get_by_role("button", name="买家发现", exact=True).click()
+                expect(page.locator(".companycard")).to_have_count(3)
+                card = page.locator(".companycard").filter(has_text="Swee Siang")
+                card.get_by_role("button", name="加入客户档案").click()
+                expect(card.get_by_role("button", name="已存入档案")).to_be_visible()
+                page.get_by_role("button", name="客户档案", exact=True).click()
+                card = page.locator(".companycard").filter(has_text="Swee Siang")
+                card.get_by_role("button", name="编辑档案").click()
+                page.get_by_label("本企业采购能力", exact=True).select_option(
+                    "可直接采购"
+                )
+                page.get_by_role("button", name="保存档案").click()
+                expect(card).to_contain_text("可直接采购")
+                page.get_by_role("button", name="渠道模拟器", exact=True).click()
+                page.get_by_role("button", name="填入询价样例").click()
+                page.get_by_role("button", name="发送模拟事件").click()
+                expect(page.get_by_text("消息已入库", exact=False).last).to_be_visible()
+                page.get_by_role("button", name="发送模拟事件").click()
+                expect(page.get_by_text("重复事件已忽略", exact=False)).to_be_visible()
+                page.get_by_role("button", name="打开询盘").click()
+                expect(page.locator("article.detail h2")).to_contain_text(
+                    "Nadia · Demo Workshop"
+                )
+                page.get_by_label("负责人", exact=True).select_option("陈舟")
+                expect(page.get_by_label("负责人", exact=True)).to_have_value("陈舟")
+                page.get_by_label("跟进记录", exact=True).fill("已向客户询问每套片数。")
+                page.get_by_role("button", name="登记已回复", exact=True).click()
+                expect(page.get_by_label("处理状态")).to_have_value("等客户补充")
+                page.get_by_role("button", name="处理记录", exact=False).click()
+                expect(
+                    page.locator(".hist").filter(has_text="登记人工回复")
+                ).to_be_visible()
+                page.reload()
+                expect(page.locator(".ticket")).to_have_count(5)
+                page.set_viewport_size({"width": 390, "height": 844})
+                expect(page.locator("h1")).to_be_visible()
+                assert page.evaluate(
+                    "document.documentElement.scrollWidth <= innerWidth"
+                )
+                assert not errors, errors
+                browser.close()
+        finally:
+            server.should_exit = True
+            thread.join(8)
+            sock.close()
+    print(
+        "Browser smoke passed: discovery, company review, simulator, deduplication, handoff and mobile layout."
+    )
+
+
+if __name__ == "__main__":
+    main()
