@@ -1,3 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
+from fastapi import HTTPException
+
+from src.api import prospects
 from src.api.db import database, initialize
 
 
@@ -110,3 +116,38 @@ def test_contact_profile_defaults_and_survives_older_client_updates(client):
     assert client.put(path, json={**company, "contact_age_band": "middle"}).status_code == 422
     record = client.put(path, json={**company, "contact_age_band": ""}).json()
     assert record["contact_gender"] == "女" and record["contact_age_band"] == ""
+
+
+def test_concurrent_recommendation_refresh_reports_in_progress(client, monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    feed = "/api/discovery/recommendations"
+    refresh = f"{feed}/refresh"
+    monkeypatch.setattr(prospects, "public_search", lambda query: [])
+    previous = client.post(refresh).json()
+    assert previous["updated"] and not previous["error"]
+
+    started = Event()
+    finish = Event()
+
+    def failing_search(query):
+        started.set()
+        assert finish.wait(10)
+        raise HTTPException(502, "上游检索失败")
+
+    monkeypatch.setattr(prospects, "public_search", failing_search)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(client.post, refresh)
+        try:
+            assert started.wait(10)
+            concurrent = client.post(refresh)
+            assert concurrent.status_code == 409
+            assert "正在更新" in concurrent.json()["detail"]
+            automatic = client.post(refresh, params={"automatic": True})
+            assert automatic.json() == previous
+        finally:
+            finish.set()
+        result = first.result(timeout=10).json()
+
+    assert result["error"] == "上游检索失败"
+    assert result["updated"] == previous["updated"]
+    assert client.get(feed).json() == result

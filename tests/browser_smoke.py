@@ -287,7 +287,7 @@ def check_recommendation_markdown(context, url):
         page.route(
             "**/api/discovery/recommendations",
             lambda route: route.fulfill(json={
-                "configured": False, "auto_due": False, "directions": [],
+                "configured": True, "auto_due": False, "directions": [],
                 "items": [{
                     "id": "formatting", "title": "证据排版验收", "market": "",
                     "source": "实时网页搜索", "grade": "B", "direction": "经销进口",
@@ -334,6 +334,15 @@ def check_recommendation_markdown(context, url):
         page.mouse.click(2, 2)
         expect(popup).to_be_hidden()
         expect(recommendation).to_be_focused()
+
+        page.route(
+            "**/api/discovery/recommendations/refresh",
+            lambda route: route.fulfill(status=409, json={"detail": "推荐正在更新，请稍后查看结果。"}),
+        )
+        page.get_by_role("button", name="更新推荐", exact=True).click()
+        expect(page.locator(".toast-info")).to_contain_text("推荐正在更新")
+        expect(page.locator(".toast-success, .toast-error")).to_have_count(0)
+        expect(recommendation).to_be_visible()
     finally:
         page.close()
 
@@ -358,6 +367,60 @@ def check_domestic(page):
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.get_by_role("button", name="工作台总览", exact=True).click()
+
+
+def check_domestic_import_retry(context, url):
+    page = context.new_page()
+    page.set_viewport_size({"width": 390, "height": 844})
+    jobs = {}
+    imports = []
+
+    def start_job(route):
+        request = route.request.post_data_json
+        jobs[request["id"]] = {
+            "id": request["id"], "q": request["q"], "status": "complete",
+            "channels": [{"platform": "dy", "status": "complete", "count": 0}],
+        }
+        route.fulfill(status=202, json=jobs[request["id"]])
+
+    def import_job(route):
+        imports.append(route.request.url.split("/")[-2])
+        if len(imports) == 1:
+            route.fulfill(status=502, json={"detail": "采集服务暂不可用"})
+        elif len(imports) == 2:
+            route.fulfill(status=413, json={"detail": "批次超出导入上限"})
+        else:
+            route.fulfill(json={"count": 0})
+
+    try:
+        page.route("**/api/domestic/searches", start_job)
+        page.route(
+            "**/api/domestic/searches/*",
+            lambda route: route.fulfill(json=jobs[route.request.url.rsplit("/", 1)[-1]]),
+        )
+        page.route("**/api/domestic/searches/*/import", import_job)
+        page.route("**/api/domestic/signals?**", lambda route: route.fulfill(json={
+            "items": [], "total": 0, "index_state": "indexed",
+        }))
+        page.goto(url + "/#discovery")
+        page.get_by_label("数据来源").select_option("domestic")
+        keyword = page.get_by_role("textbox", name="关键词", exact=True)
+        search = page.get_by_role("button", name="搜索线索", exact=True)
+        keyword.fill("刹车片")
+        search.click()
+        expect(page.get_by_role("alert")).to_have_text("采集服务暂不可用")
+        search.click()
+        expect(page.get_by_role("alert")).to_have_text("批次超出导入上限")
+        keyword.fill("车队")
+        search.click()
+        expect(page.get_by_text("本次采集没有符合筛选条件的线索。", exact=True)).to_be_visible()
+        assert [job["q"] for job in jobs.values()] == ["刹车片", "车队"]
+        first, second = jobs
+        assert imports == [first, first, second]
+        expect(keyword).to_have_value("车队")
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    finally:
+        page.close()
 
 
 def main():
@@ -424,6 +487,7 @@ def main():
                 check_customer_statistics(context, url)
                 check_recommendation_markdown(context, url)
                 check_domestic(page)
+                check_domestic_import_retry(context, url)
                 open_brief = page.get_by_role("button", name="查看跟进简报")
                 open_brief.click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")

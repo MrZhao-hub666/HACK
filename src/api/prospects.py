@@ -55,13 +55,8 @@ BUYER_TERMS = {
     "待识别": "truck fleet OR commercial truck workshop",
 }
 MARKETS = {
-    "马来西亚": "Malaysia",
-    "菲律宾": "Philippines",
-    "泰国": "Thailand",
-    "巴西": "Brazil",
-    "阿联酋": "United Arab Emirates",
-    "墨西哥": "Mexico",
-    "印尼": "Indonesia",
+    **DISCOVERY_MARKET_TERMS,
+    "印尼": DISCOVERY_MARKET_TERMS["印度尼西亚"],
 }
 
 
@@ -195,9 +190,7 @@ def public_search(query, *, domains=()):
 
 
 def discover(request):
-    market = DISCOVERY_MARKET_TERMS.get(request.market) or MARKETS.get(
-        request.market, request.market
-    )
+    market = MARKETS.get(request.market, request.market)
     query = f"{market} {BUYER_TERMS[request.kind]} {request.keywords}".strip()
     if request.mode == "samples":
         result = []

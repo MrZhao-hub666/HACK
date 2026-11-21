@@ -26,6 +26,22 @@ def event(c, event_id="e1", **kw):
     return c.post("/api/demo/inquiries", json=data)
 
 
+def test_archive_matches_legacy_and_discovery_market_labels(client):
+    for legacy, current in (("印尼", "印度尼西亚"), ("ID", "印度尼西亚"), ("Germany", "德国")):
+        profile = {"name": f"Fleet in {legacy}", "country": legacy, "procurement": "可直接采购"}
+        archived = client.post("/api/companies", json=profile)
+        archived.raise_for_status()
+        saved = client.post("/api/companies", json={
+            "name": profile["name"], "country": current, "source": "实时网页搜索",
+        })
+        saved.raise_for_status()
+        assert saved.json()["id"] == archived.json()["id"]
+        assert saved.json()["country"] == legacy
+        assert saved.json()["procurement"] == "可直接采购"
+
+    assert len(client.get("/api/companies").json()) == 3
+
+
 def test_discovery_and_company(client):
     rows = client.post(
         "/api/discovery/search", json={"market": "MY", "kind": "维修厂"}

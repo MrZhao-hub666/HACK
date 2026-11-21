@@ -108,7 +108,15 @@ async function searchLive() {
         status.channels.length === 1 ? status.channels[0].platform : "";
       if (status.status === "complete") {
         if (status.channels.some((channel) => channel.status === "complete")) {
-          await api(path + "/import", "POST");
+          try {
+            await api(path + "/import", "POST");
+          } catch (e) {
+            // A batch rejected for size or format cannot be imported unchanged.
+            if (e instanceof ApiError && (e.status === 413 || e.status === 422)) {
+              clearPending();
+            }
+            throw e;
+          }
           searchId.value = status.id;
           await results(0);
         } else {

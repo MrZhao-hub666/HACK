@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { api, clock, errorMessage, safeLink, stamp, toast } from "../shared";
+import { api, ApiError, clock, errorMessage, safeLink, stamp, toast } from "../shared";
 import type { BuyerRecommendation, BuyerRecommendations } from "../types";
 import Icon from "./Icon.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
@@ -58,6 +58,10 @@ async function load(manual = false) {
       }
     }
   } catch (e) {
+    if (manual && e instanceof ApiError && e.status === 409) {
+      toast(e.message, "info");
+      return;
+    }
     error.value = errorMessage(e);
     if (manual) toast("推荐更新失败", "error");
   } finally {

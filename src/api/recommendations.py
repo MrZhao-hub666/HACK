@@ -16,6 +16,7 @@ QUERY = (
     "workshop haulage fleet own workshop"
 )
 DAY = 24 * 60 * 60
+REFRESH_IN_PROGRESS = "推荐正在更新，请稍后查看结果。"
 DIRECTIONS = (
     ("主机与车桥配套", r"车桥厂|主机厂|整车厂|整车配套|axle manufacturer|vehicle manufacturer|truck manufacturer"),
     ("经销进口", r"经销商|代理商|进口商|批发商|\b(?:distributors?|importers?|wholesalers?|dealerships?)\b"),
@@ -157,6 +158,8 @@ def refresh(automatic):
     now = int(time.time())
     with database(True) as db:
         cache = db.execute("SELECT attempted,expires FROM discovery_recommendations WHERE id=1").fetchone()
+        if cache and cache["expires"] > now and not automatic:
+            raise HTTPException(409, REFRESH_IN_PROGRESS)
         started = not cache or (
             cache["expires"] <= now and (not automatic or cache["attempted"] <= now - DAY)
         )
@@ -171,14 +174,18 @@ def refresh(automatic):
             items = prospects.public_search(QUERY)
         except HTTPException as exc:
             with database(True) as db:
-                db.execute(
-                    "UPDATE discovery_recommendations SET error=?,expires=0 WHERE id=1",
-                    (exc.detail,),
-                )
+                written = db.execute(
+                    """UPDATE discovery_recommendations SET error=?,expires=0
+                       WHERE id=1 AND attempted=? AND expires>0""",
+                    (exc.detail, now),
+                ).rowcount
         else:
             with database(True) as db:
-                db.execute(
-                    "UPDATE discovery_recommendations SET items=?,updated=?,error='',expires=0 WHERE id=1",
-                    (json.dumps(items, ensure_ascii=False), utc()),
-                )
+                written = db.execute(
+                    """UPDATE discovery_recommendations SET items=?,updated=?,error='',expires=0
+                       WHERE id=1 AND attempted=? AND expires>0""",
+                    (json.dumps(items, ensure_ascii=False), utc(), now),
+                ).rowcount
+        if not written and not automatic:
+            raise HTTPException(409, REFRESH_IN_PROGRESS)
     return recommendations()
