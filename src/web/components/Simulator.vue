@@ -18,6 +18,16 @@ import type { Receipt, Config } from "../types";
 
 const props = defineProps<{ manual: boolean; config: Config }>();
 const emit = defineEmits<{ reload: []; open: [id: number] }>();
+const receiverHints: Record<string, string> = {
+  meta: "公共主页私信、评论和获授权的线索表单。",
+  wechat: "客户进入指定微信客服账号后发来的咨询。",
+  whatsapp: "客户发给已注册商业号码的消息。",
+  instagram: "客户发给专业账号的私信。",
+  x: "公开提及、帖子回复和传统私信。加密聊天仅提示来信，正文请在 X 查看。",
+  tiktok: "需获批企业消息权限。仅含接收方和时间的欧区通知需在原渠道核实。",
+  telegram: "客户与指定机器人的一对一聊天。",
+  line: "客户发给 LINE 官方账号的一对一消息。",
+};
 const form = ref({
     channel: "messenger",
     sender: "",
@@ -182,15 +192,16 @@ async function submit() {
         <div class="line">
           <strong>{{ r.name }}</strong
           ><span class="tag">{{
-            r.sync?.error
-              ? "接收异常"
-              : r.sync?.last_success
-                ? "已接收回调"
-                : r.configured
-                  ? "等待回调"
-                  : "未配置"
+            !r.configured
+              ? "未配置"
+              : r.sync?.error
+                ? "接收异常"
+                : r.sync?.last_success
+                  ? "已接收回调"
+                  : "等待回调"
           }}</span>
         </div>
+        <p>{{ receiverHints[r.id] }}</p>
         <small>{{
           r.sync?.error || "最近成功接收：" + stamp(r.sync?.last_success)
         }}</small>

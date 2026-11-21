@@ -14,6 +14,8 @@ flowchart TD
   Find --> Search["Brave 或样例库"]
   API --> Intake["模拟及补录"]
   Meta["Meta Page"] --> Adapter["签名回调"]
+  Social["WhatsApp / Instagram / X / TikTok / Telegram / LINE"] --> SocialAdapter["校验来源、核对账号并解析来信"]
+  SocialAdapter --> Inbox
   WX["微信客服"] --> Adapter
   Adapter --> Inbox["消息处理"]
   Intake --> Inbox

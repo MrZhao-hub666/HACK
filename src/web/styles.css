@@ -191,6 +191,8 @@ textarea { resize: vertical; }
 .timeline { padding-top: var(--space-8); max-height: 340px; overflow: auto; }
 .bubble, .next, .merge { padding: var(--space-12) var(--space-12); border: 1px solid var(--divider); background: var(--surface-subtle); border-radius: var(--radius-control); }
 .bubble + .bubble { margin-top: var(--space-8); }
+.message-source { margin-top: var(--space-8); color: var(--muted); font: var(--type-caption); overflow-wrap: anywhere; }
+.message-source summary { cursor: pointer; }
 .bubble b, .bubble small { font: var(--type-caption); }
 .original, .translation, .hist p, .companycard p { white-space: pre-wrap; overflow-wrap: anywhere; margin: var(--space-4) 0; font: var(--type-body); }
 .translation { color: var(--blue); }

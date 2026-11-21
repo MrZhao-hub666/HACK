@@ -13,7 +13,7 @@ from typing import Literal
 
 from .accounts import team
 from .auth import browser_write, router as auth_router, workspace_user
-from .channels import router
+from .channels import receiver_settings, router
 from .db import audit, database, initialize, one, utc
 from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
@@ -75,18 +75,7 @@ def config():
                 "configured": all(os.getenv(x) for x in keys),
                 "sync": sync.get(k),
             }
-            for k, name, keys in [
-                (
-                    "meta",
-                    "Facebook / Messenger",
-                    ["META_APP_SECRET", "META_PAGE_ID", "META_VERIFY_TOKEN"],
-                ),
-                (
-                    "wechat",
-                    "微信客服",
-                    ["WX_AES_KEY", "WX_TOKEN", "WX_CORP_ID", "WX_KF_SECRET"],
-                ),
-            ]
+            for k, name, keys in receiver_settings()
         ],
         "llm": bool(os.getenv("LLM_API_KEY") and os.getenv("LLM_MODEL")),
         "demo": os.getenv("ENABLE_SIMULATOR", "1") == "1",
@@ -180,7 +169,7 @@ def inquiries():
           EXISTS(SELECT 1 FROM messages n WHERE n.inquiry_id=i.id AND n.at>=? AND n.at<?
                  AND n.answered=0) AS night_unanswered,
           (SELECT group_concat(DISTINCT ch.channel) FROM messages ch WHERE ch.inquiry_id=i.id) AS all_channels,
-          m.channel,m.body AS preview,m.origin,m.features,
+          m.channel,coalesce(nullif(m.body,''),m.attachment) AS preview,m.origin,m.features,
           (SELECT count(*) FROM messages WHERE inquiry_id=i.id) AS message_count
         FROM inquiries i LEFT JOIN companies c ON c.id=i.company_id
         JOIN messages m ON m.id=(SELECT id FROM messages WHERE inquiry_id=i.id ORDER BY at DESC,id DESC LIMIT 1)

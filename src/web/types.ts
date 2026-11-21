@@ -4,6 +4,13 @@ export type Channel =
   | "messenger"
   | "facebook_comment"
   | "facebook_form"
+  | "whatsapp"
+  | "instagram"
+  | "x_dm"
+  | "x_post"
+  | "tiktok"
+  | "telegram"
+  | "line"
   | "wechat_kf"
   | "wechat_comment"
   | "manual";
@@ -107,6 +114,9 @@ interface Features {
 }
 export interface Message {
   id: number;
+  account: string;
+  thread_key: string;
+  event_id: string;
   at: string;
   origin: string;
   channel: Channel;
