@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AlternativePanel from "./AlternativePanel.vue";
+import SelectionPanel from "./SelectionPanel.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
 import { ref, computed, watch } from "vue";
 import {
@@ -279,13 +280,13 @@ function record(type: "notes" | "reply") {
         />
         <div class="tabs">
           <button
-            v-for="t in ['消息', '处理记录']"
+            v-for="t in ['消息', '智能选型', '处理记录']"
             @click="tab = t"
             :class="{ active: tab === t }"
             :aria-pressed="tab === t"
           >
             {{ t }}
-            <small>{{
+            <small v-if="t !== '智能选型'">{{
               t === "消息" ? item.messages.length : item.history.length
             }}</small>
           </button>
@@ -321,6 +322,7 @@ function record(type: "notes" | "reply") {
             </details>
           </div>
         </div>
+        <SelectionPanel v-else-if="tab === '智能选型'" :inquiry="item" />
         <div class="timeline" v-else>
           <div class="hist" v-for="h in item.history">
             <b>{{ h.action }}</b>

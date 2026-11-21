@@ -11,3 +11,10 @@ tests
 .pytest_cache
 **/node_modules
 **/dist
+
+.catalog-tools
+鼓式刹车片照片等8个文件/
+**/.env.local
+**/.venv
+src/backend
+src/frontend

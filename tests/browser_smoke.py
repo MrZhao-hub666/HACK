@@ -329,7 +329,7 @@ def main():
                 create_account(db, "lin.yue", "林悦", "admin", encoded)
                 create_account(db, "chen.zhou", "陈舟", "sales", encoded)
             with sync_playwright() as pw:
-                browser = pw.chromium.launch()
+                browser = pw.chromium.launch(channel=os.getenv("WORKBENCH_BROWSER_CHANNEL") or None)
                 context = browser.new_context(viewport={"width": 1440, "height": 1000})
                 page = context.new_page()
                 errors = []

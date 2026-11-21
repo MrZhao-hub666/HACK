@@ -23,6 +23,7 @@ from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
 from .outreach import router as outreach_router
 from .prospects import discover, host, save_company, valid_url
 from .seed import seed
+from .selection import router as selection_router
 
 
 @asynccontextmanager
@@ -258,6 +259,7 @@ def link(ident: int, req: Merge, user=Depends(workspace_user)):
 business.include_router(alternatives_router)
 business.include_router(outreach_router)
 business.include_router(domestic_router)
+business.include_router(selection_router)
 app.include_router(business)
 
 web = Path(__file__).resolve().parent.parent / "web" / "dist"

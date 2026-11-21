@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS history (
  at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS cursors (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO cursors(name,value) VALUES ('selection-workspace', lower(hex(randomblob(16))));
 CREATE TABLE IF NOT EXISTS channel_sync (
  provider TEXT PRIMARY KEY, last_attempt TEXT NOT NULL, last_success TEXT, error TEXT NOT NULL DEFAULT ''
 );

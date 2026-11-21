@@ -2,26 +2,39 @@
 
 面向商用车制动片出口团队。销售可以按市场发现企业、打开业务证据、核实采购角色，在同一收件箱分派 Facebook、微信客服、WhatsApp、Instagram、X、TikTok、Telegram 和 LINE 的客户来信。模拟消息和人工补录均标记来源。
 
-## 启动
+## 本地整合开发
 
-需要 Docker 和 Docker Compose v2 或以上。在本文件所在目录执行：
+在 Windows 项目根目录依次运行 `start-backend.bat` 和 `start-frontend.bat`，打开 [销售工作台](http://127.0.0.1:5174)。需要 Docker Desktop、uv、Python 3.12 和 Node.js 22.12+。第一个脚本启动原来的 PostgreSQL，并并行启动两个带热加载的 API。第二个脚本在 `src/web` 下执行 `npm run dev`，使用 Vite 8.3.4。首次安装依赖需要联网。
+
+| 服务 | 本机地址或位置 |
+| --- | --- |
+| 统一 Vue 工作台，后续 UI 设计入口 | `src/web`，端口 5174 |
+| 获客、登录、询盘与选型交接 | `src/api`，端口 8081，SQLite 默认在 `data/leads.sqlite3` |
+| 产品目录、两级匹配、报价与 Excel 同步 | `src/backend`，端口 8000，PostgreSQL 默认端口 55432 |
+| 原独立目录维护界面 | `src/frontend`，需要单开时执行 `npm --prefix src/frontend run dev` |
+
+首次运行请在另一终端为本地工作台创建管理员，按提示设置自己的密码。
+
+```powershell
+.\.venv\Scripts\python.exe -m src.api.accounts init-admin --username admin --name 工作台管理员
+```
+
+在「询盘收件箱」选中客户，打开「智能选型」。点击「根据询盘匹配型号」会读取最近最多 30 段客户来信、登记的销售回复和本次补充原话，调用本地目录匹配。客户补充框只参与当前匹配。系统保留有歧义的候选，返回追问、匹配依据、产品图和目录出处。销售确认规格、数量和计价单位后可以保存报价草稿，缺少有效价目时显示「待核价」。同一工作台可按询盘回看最近 25 份草稿。两个后端都需要启动。
+
+在另一台机器恢复选型目录时，将原资料包目录 `鼓式刹车片照片等8个文件`、`docs/materials` 和原有目录工作簿放回相同位置。企业资料和真实密钥由团队单独传递。选型后端的可选模型配置在 `src/backend/.env.local`，沿用 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`。询盘选型默认走本地规则。
+
+## Docker 工作台
 
 ```sh
 docker compose up -d --build --wait
 ```
 
-工作台在 [localhost:8080](http://localhost:8080)，接口清单在 [localhost:8080/docs](http://localhost:8080/docs)。健康检查为 `GET /api/health`。Compose 默认仅绑定本机，API 容器保持在内部网络。SQLite 保存在命名卷 `sales_data`，普通 `docker compose down` 后数据仍保留。若端口占用，将 `.env.example` 复制为 `.env` 并修改 `PORT`。首次构建下载基础镜像及依赖，在 Node 构建阶段执行 TypeScript 检查和 Vite 打包。运行时由 Nginx 提供本地静态资源。
-
-本地开发使用 Python 3.12 和 Node.js 22.12+。在项目根目录执行
+容器版工作台在 [localhost:8080](http://localhost:8080)，复用获客卷 `kooying-leads_sales_data` 和目录卷 `guanying-catalog_catalog_pg`。本地开发的 SQLite 文件和容器版的 SQLite 卷分别保存各自的询盘与账号。容器版选型仍需在宿主机的 `src/backend` 目录运行下列命令。Docker Desktop 通过 `host.docker.internal` 调用它，其他部署可通过 `SELECTOR_URL` 指定 API 容器可达的选型服务地址。
 
 ```sh
-python -m pip install -r src/api/requirements.txt
-npm --prefix src/web ci
-npm --prefix src/web run build
-python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
+uv run --locked uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir app
 ```
 
-打开 [localhost:8000](http://localhost:8000)。FastAPI 同源提供 `src/web/dist`，SQLite 默认位于 `data/leads.sqlite3`。修改前端时可在第二个终端执行 `npm --prefix src/web run dev`，打开终端显示的地址，Vite 会热更新组件并将 API 请求转发至 8000 端口。直接启动 Python 时使用进程环境变量，Compose 会读取根目录 `.env`。
 
 在「海外销售工作台」横栏下切换统计标签。默认打开「客户经营统计」，按已入档企业统计全部客户、北京时间今日新增、已确认成交、待分配和跟进中客户。点击数字或图表可查看对应企业，再打开档案。客户分布可切换国家 / 地区、业务类型和采购能力；分级沿用展会拓客的 A/B/C 与待评级，来源按首次入档统计。入档趋势可查看近 7 天、近 30 天或互不重叠的档龄区间。升级前缺少入档时间的企业列为“入档时间未知”。销售在「客户档案 → 编辑档案 → 成交记录」确认或撤回成交。
 

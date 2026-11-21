@@ -1,0 +1,282 @@
+import asyncio
+from collections import defaultdict
+from typing import Literal
+from io import BytesIO
+import re
+from functools import lru_cache
+from hashlib import sha256
+from contextlib import asynccontextmanager, suppress
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+from urllib.parse import quote
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, Response
+from PIL import Image
+from psycopg.types.json import Jsonb
+from pydantic import BaseModel, Field
+
+from .catalog import DOCS, PACK, FIELDS, db, init_db, order_specs
+from .match import Turn, extract, match
+from .routing import route_inquiry
+from .sync import sync
+from .foreign import COUNTRIES, canonical_id, country_candidates, read_tables, sales_fields
+from .foreign_sync import synchronize as sync_foreign
+from . import domestic
+
+state = {"sync":"首次同步中"}
+
+def refresh():
+    try:
+        revision=sync_foreign()
+        state.update(foreign_revision=revision,domestic_revision=domestic.synchronize(),sync=sync())
+    except PermissionError:
+        state["sync"] = "请关闭 Excel，文件解锁后会自动重试"
+    except Exception as e:
+        state["sync"] = str(e).splitlines()[0][:220]
+
+async def watch():
+    while True:
+        await asyncio.sleep(4)
+        await asyncio.to_thread(refresh)
+
+@asynccontextmanager
+async def lifespan(app):
+    await asyncio.to_thread(init_db)
+    await asyncio.to_thread(refresh)
+    task = asyncio.create_task(watch())
+    yield
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+app=FastAPI(title="冠英销售选型工作台",lifespan=lifespan)
+
+@lru_cache(maxsize=2048)
+def photo_digest(path, modified, size):
+    return sha256(path.read_bytes()).digest()
+
+def catalog(prefixes=None,compact=False):
+    with db() as conn:
+        foreign={}
+        domestic_parts=defaultdict(list)
+        if conn.execute("SELECT current_schema() AS s").fetchone()["s"]=="public":
+            foreign={r["legacy_key"]:r for group in read_tables(conn,prefixes).values() for r in group}
+            for part in domestic.read_rows(conn,prefixes):
+                domestic_parts[part["legacy_key"]].append(part)
+        condition="" if prefixes is None else " WHERE spec_id=ANY(%s)"
+        args=None if prefixes is None else (list(foreign.keys()|domestic_parts.keys()),)
+        columns="spec_id,code,name,series,brand,vehicle,axle,fit_notes,market,kind,source,width,thickness,holes" if compact else "*"
+        rows=order_specs(conn.execute(f"SELECT {columns} FROM catalog_spec"+condition,args).fetchall())
+        references=conn.execute("SELECT * FROM catalog_reference"+condition+" ORDER BY scheme,number",args).fetchall()
+        images=[] if compact else conn.execute("SELECT * FROM catalog_media"+condition+" ORDER BY path",args).fetchall()
+        observations=[] if compact else conn.execute("SELECT observation_id,spec_key,page_key FROM catalog_observation"+
+            condition.replace("spec_id","spec_key")+" ORDER BY page_key,observation_id",args).fetchall()
+    sources={}
+    for o in observations:
+        page=o["page_key"]
+        sources.setdefault(o["spec_key"],[]).append(dict(label=("英文册 " if page.startswith("en") else "中文册 ")+str(int(page[-2:]))+" 页",
+            page="/api/page/"+page,crop="/api/observation/"+o["observation_id"]))
+    by_spec={}
+    for ref in references:
+        by_spec.setdefault(ref["spec_id"],[]).append(ref)
+    albums, seen = {}, set()
+    for m in images:
+        file = (PACK / m["path"]).resolve()
+        if not file.is_relative_to(PACK.resolve()) or not file.is_file():
+            continue
+        stat = file.stat()
+        signature = (m["spec_id"], photo_digest(file,stat.st_mtime_ns,stat.st_size))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        albums.setdefault(m["spec_id"],[]).append({"label":m["label"],"url":"/api/photo/"+quote(m["path"])})
+    result=[]
+    for r in rows:
+        r["references"]=by_spec.get(r["spec_id"],[])
+        r["images"]=albums.get(r["spec_id"],[])
+        source=r["source"] or ""
+        r["sources"]=sources.get(r["spec_id"],[])
+        r["evidence"]=r["sources"][0]["page"] if r["sources"] else next(("/api/evidence/"+p for p in ("8","13") if f"PDF {p} /" in source),None)
+        if r["spec_id"] in domestic_parts:
+            for part in domestic_parts[r["spec_id"]]:
+                item={**r,**domestic.sales_fields(part)}
+                item["images"]=[dict(label="中文册原图",url="/api/domestic-picture/"+part["part_id"]),*r["images"]]
+                item["references"]=[*r["references"],dict(spec_id=part["part_id"],scheme="spec_id",number=part["part_id"],supplier=None)]
+                result.append(item)
+            continue
+        new=foreign.get(r["spec_id"])
+        if new:
+            r.update(sales_fields(new))
+            if new.get("item") and not new.get("code"):
+                r["name"]=new["item"]
+                r["series"]=new["application"]
+            refs=[ref for ref in r["references"] if ref["scheme"]=="supplier_ref"]
+            for scheme in ("spec_id","code","wva","bfmc","fmsi","oe_ref","catalog_ref"):
+                value=r.get(scheme)
+                if not value:
+                    continue
+                tokens=[value]
+                if scheme=="wva" and re.fullmatch(r"[\d\s/；;]+",value):
+                    tokens=re.findall(r"\d+",value)
+                refs.extend(dict(spec_id=r["spec_id"],scheme=scheme,number=t,supplier=None) for t in tokens)
+            r["references"]=refs
+        result.append(r)
+    return sorted(result,key=lambda r:r.get("pdf_order",10000000))
+
+@lru_cache(maxsize=1)
+def routing_index(revision):
+    return catalog(compact=True)
+
+@app.get("/api/catalog")
+def products(country:str|None=None):
+    return dict(items=country_candidates(catalog(),country),fields=FIELDS,**status())
+
+@app.get("/api/status")
+def status():
+    with db() as conn:
+        row = conn.execute("SELECT data_hash FROM catalog_sync WHERE id=1").fetchone()
+    return dict(**state,revision=(row["data_hash"] if row else "")+state.get("foreign_revision","")+state.get("domestic_revision",""))
+
+@app.get("/api/domestic-picture/{key}")
+def domestic_picture(key:str):
+    with db() as c:
+        part=c.execute("SELECT page_key,picture_box FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
+    if not part:raise HTTPException(404,"国内规格不存在")
+    with Image.open(DOCS/"materials/pages"/(part["page_key"]+".jpg")) as im:
+        buf=BytesIO()
+        im.crop(part["picture_box"]).save(buf,"PNG")
+        return Response(buf.getvalue(),media_type="image/png")
+
+@app.get("/api/photo/{path:path}")
+def photo(path:str):
+    target=(PACK/path).resolve()
+    if not target.is_relative_to(PACK.resolve()) or not target.is_file() or target.suffix.lower() not in {".jpg",".jpeg",".png"}:
+        raise HTTPException(404)
+    return FileResponse(target)
+
+@app.get("/api/evidence/{page}")
+def evidence(page:int):
+    if page not in (8,13):
+        raise HTTPException(404)
+    return FileResponse(DOCS/"materials"/f"catalog-{page:02}.jpg")
+
+@app.get("/api/page/{page}")
+def source_page(page:str):
+    if not re.fullmatch(r"(en|cn)-\d{2}",page):raise HTTPException(404)
+    image=DOCS/"materials/pages"/(page+".jpg")
+    if not image.is_file():raise HTTPException(404)
+    return FileResponse(image)
+
+@app.get("/api/observation/{key}")
+def source_row(key:str):
+    with db() as c:
+        row=c.execute("SELECT page_key,bbox,reading->'card_box' AS card FROM catalog_observation WHERE observation_id=%s",(key,)).fetchone()
+    if not row:raise HTTPException(404)
+    with Image.open(DOCS/"materials/pages"/(row["page_key"]+".jpg")) as im:
+        box=row["card"] or row["bbox"]
+        crop=im.crop((max(0,box[0]-3),max(0,box[1]-3),min(im.width,box[2]+3),min(im.height,box[3]+3)))
+        buf=BytesIO();crop.save(buf,"PNG")
+    return Response(buf.getvalue(),media_type="image/png")
+
+class Inquiry(BaseModel):
+    turns:list[Turn]=Field(min_length=1,max_length=30)
+    use_model:bool=False
+    market:Literal["国内","外贸"]|None=None
+    country:str|None=None
+
+@app.post("/api/match")
+def analyze(req:Inquiry):
+    index=routing_index(status()["revision"])
+    clues,mode=extract(req.turns,index,req.use_model)
+    route=route_inquiry(req.turns,index,clues,req.market,req.country)
+    clues.market={"F":"外贸","D":"国内"}.get(route["slots"]["market"]["value"],"")
+    clues.kind={"P":"盘式","G":"鼓式"}.get(route["slots"]["kind"]["value"],"")
+    rows=catalog(route["search_prefixes"]) if route["status"]=="resolved" else []
+    result=match(req.turns,rows,False,extracted=(clues,mode))
+    result["routing"]=route
+    if route["question"]:
+        result["question"]=route["question"]
+    return result
+
+class Quote(BaseModel):
+    spec_id:str
+    workspace:UUID|None=None
+    inquiry_id:int|None=Field(default=None,gt=0)
+    request_key:UUID|None=None
+    market:Literal["国内","外贸","待确认"]|None=None
+    quantity:int=Field(gt=0,le=100000000)
+    unit:str=Field(min_length=1,max_length=20)
+
+class DraftSearch(BaseModel):
+    workspace: UUID
+    inquiries: list[int] = Field(min_length=1)
+
+@app.post("/api/quote-drafts/search")
+def inquiry_drafts(req: DraftSearch):
+    with db() as conn:
+        rows = conn.execute("""
+            SELECT id, snapshot FROM quote_draft WHERE snapshot->>'workspace'=%s
+            AND snapshot->>'inquiry_id'=ANY(%s)
+            ORDER BY id DESC LIMIT 25
+        """, (str(req.workspace), [str(i) for i in req.inquiries])).fetchall()
+    return [dict(id=row["id"], **row["snapshot"]) for row in rows]
+
+@app.post("/api/quotes")
+def draft(req:Quote):
+    with db() as conn:
+        key=canonical_id(req.spec_id)
+        workspace = str(req.workspace) if req.workspace else None
+        request = dict(workspace=workspace, inquiry_id=req.inquiry_id, spec_id=key, quantity=req.quantity, unit=req.unit, market=req.market)
+        if req.request_key:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(req.request_key),))
+            saved = conn.execute("SELECT id,snapshot FROM quote_draft WHERE request_key=%s", (req.request_key,)).fetchone()
+            if saved:
+                if saved["snapshot"].get("request") != request:
+                    raise HTTPException(409, "该请求已用于其他报价，请重新选择")
+                return dict(id=saved["id"], **saved["snapshot"])
+        part=None
+        domestic_part=None
+        if re.fullmatch(r"DC[GP]\d{4}",key):
+            domestic_part=conn.execute("SELECT * FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
+            if domestic_part:key=domestic_part["legacy_key"]
+        if re.fullmatch(r"F[EAJCKN][GP]\d{4}",key):
+            table=COUNTRIES[key[1]][1]
+            part=conn.execute(f"""SELECT t.*,s.legacy_key,s.pdf_order FROM foreign_catalog.{table} t
+                JOIN foreign_catalog.source s USING(part_id) WHERE part_id=%s""",(key,)).fetchone()
+            if part:
+                key=part["legacy_key"]
+        row=conn.execute("SELECT * FROM catalog_spec WHERE spec_id=%s",(key,)).fetchone()
+        if not row:
+            raise HTTPException(404,"规格不存在")
+        if part:
+            row.update(sales_fields(part))
+        if domestic_part:
+            row.update(domestic.sales_fields(domestic_part))
+        if req.market and row["market"]!=req.market:
+            raise HTTPException(409,"目录市场已变动，请重新选择对应规格")
+        required=("sku","material","price","currency","sale_unit","price_source","valid_until")
+        missing=[FIELDS[k] for k in required if not row[k]]
+        if row["sale_unit"] and req.unit!=row["sale_unit"]:
+            missing.append("计价单位不一致")
+        if row["valid_until"] and date.fromisoformat(row["valid_until"]) < date.today():
+            missing.append("价目已过期")
+        if row["status"]!="目录记录" and row["status"]!="企业已核":
+            missing.append("产品关系待核")
+        total=None if missing else str(Decimal(row["price"])*req.quantity)
+        snapshot=dict(spec_id=row["spec_id"],code=row["code"],name=row["name"],sku=row["sku"],
+            market=row["market"],source_pages=row["page_refs"],size=row["size_raw"],
+            material=row["material"],quantity=req.quantity,unit=req.unit,unit_price=row["price"],total=total,
+            currency=row["currency"],source=row["price_source"],valid_until=row["valid_until"],
+            status="待核价" if missing else "报价草稿",missing=missing)
+        if domestic_part:
+            snapshot["thickness"]=domestic_part["thickness"]
+        if req.inquiry_id:
+            snapshot["inquiry_id"] = req.inquiry_id
+            snapshot["workspace"] = workspace
+        if req.request_key:
+            snapshot["request"] = request
+        ref=conn.execute("INSERT INTO quote_draft(snapshot,request_key) VALUES (%s,%s) RETURNING id",(Jsonb(snapshot),req.request_key)).fetchone()
+        return dict(id=ref["id"],**snapshot)
+
