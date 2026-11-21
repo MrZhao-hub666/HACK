@@ -3,10 +3,10 @@ import os
 
 from fastapi import HTTPException
 
+from .accounts import team
 from .db import audit, database, one, utc
 from .intelligence import INTENTS, enrich, extract
 
-TEAM = ["林悦", "陈舟", "吴桐"]
 ACTIONS = {
     "采购询价": "核对采购身份、数量与计价单位",
     "询型匹配": "索取车桥信息或旧片编码",
@@ -23,7 +23,7 @@ def get_inquiry(db, ident):
     )
 
 
-def receive(event, origin, allow_model=True):
+def receive(event, origin, allow_model=True, actor="系统"):
     if not event.body and not event.attachment:
         raise HTTPException(422, "请输入消息或附件说明")
     key = (event.channel, event.account, event.event_id)
@@ -50,6 +50,8 @@ def receive(event, origin, allow_model=True):
         if thread:
             ident = thread[0]
             current = get_inquiry(db, ident)
+            if actor != "系统":
+                audit(db, ident, actor, "追加来信", origin)
             if current["state"] in ("已结束", "等客户补充"):
                 db.execute(
                     "UPDATE inquiries SET state=? WHERE id=?",
@@ -77,7 +79,7 @@ def receive(event, origin, allow_model=True):
                         "SELECT owner,count(*) FROM inquiries WHERE state<>'已结束' AND merged_into IS NULL GROUP BY owner"
                     )
                 }
-                owner = min(TEAM, key=lambda x: workload.get(x, 0))
+                owner = min(team(db), key=lambda x: workload.get(x, 0), default="")
             ident = db.execute(
                 "INSERT INTO inquiries(buyer,owner,intent,next_action,created,last_in,state) "
                 "VALUES (?,?,?,?,?,?,?)",
@@ -92,7 +94,7 @@ def receive(event, origin, allow_model=True):
                 ),
             ).lastrowid
             db.execute("INSERT INTO threads VALUES(?,?,?,?)", (*thread_key, ident))
-            audit(db, ident, "系统", "收到询盘", origin)
+            audit(db, ident, actor, "收到询盘", origin)
         db.execute(
             "INSERT INTO messages(inquiry_id,channel,account,event_id,thread_key,sender,body,at,origin,"
             "features,attachment) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -133,9 +135,15 @@ def detail(db, ident):
     return item
 
 
-def edit(db, ident, patch):
+def edit(db, ident, patch, actor):
     current = get_inquiry(db, ident)
     data = patch.model_dump(exclude_unset=True, exclude={"actor"})
+    if (
+        data.get("owner")
+        and data["owner"] != current["owner"]
+        and data["owner"] not in team(db)
+    ):
+        raise HTTPException(422, "请选择启用的团队成员")
     if "intent" in data and data["intent"] not in INTENTS:
         raise HTTPException(422, "无效意图")
     if data.get("company_id") is not None:
@@ -152,7 +160,7 @@ def edit(db, ident, patch):
                 "intent": "纠正意图",
                 "next_action": "更新下一步",
             }
-            audit(db, ident, patch.actor, labels[k], str(v or "已清除"))
+            audit(db, ident, actor, labels[k], str(v or "已清除"))
     return detail(db, ident)
 
 

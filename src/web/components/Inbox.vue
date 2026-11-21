@@ -103,7 +103,6 @@ async function mutate(
       method,
       {
         ...body,
-        actor: props.actor,
       },
     );
     if (selected.value === id) {
@@ -174,6 +173,7 @@ function record(type: "notes" | "reply") {
       <button
         v-for="f in filters"
         :class="{ on: filter === f }"
+        :aria-pressed="filter === f"
         @click="filter = f"
       >
         {{ f }}
@@ -186,6 +186,7 @@ function record(type: "notes" | "reply") {
           v-for="r in visible"
           :key="r.id"
           :class="{ picked: selected === r.id }"
+          :aria-pressed="selected === r.id"
           @click="open(r.id)"
         >
           <div class="line">
@@ -193,9 +194,7 @@ function record(type: "notes" | "reply") {
               ><span
                 class="channel-mini"
                 :class="channelStyles[r.channel]?.tone"
-                ><icon
-                  :name="channelStyles[r.channel]?.icon"
-                  :size="13" /></span
+                ><icon :name="channelStyles[r.channel]?.icon" size="sm" /></span
               >{{ channels[r.channel] }}</span
             >
             <small>#{{ String(r.id).padStart(4, "0") }}</small>
@@ -219,7 +218,7 @@ function record(type: "notes" | "reply") {
         </button>
         <div class="empty" v-if="!visible.length">没有符合条件的询盘</div>
       </div>
-      <article class="detail" v-if="item">
+      <article class="detail" v-if="item" :key="item.id">
         <div class="line">
           <span class="micro"
             >询盘 #{{ String(item.id).padStart(4, "0") }}</span
@@ -230,7 +229,7 @@ function record(type: "notes" | "reply") {
         <div class="meta">首次来信 {{ stamp(item.created) }} · 北京时间</div>
         <div class="analysis-box" v-if="latest">
           <div class="line">
-            <b><icon name="spark" :size="16" />最近来信摘要</b
+            <b><icon name="spark" size="sm" />最近来信摘要</b
             ><span class="tag blue">{{ latest.engine || "本地规则" }}</span>
           </div>
           <p>{{ latest.intent }} · {{ latest.language }}</p>
@@ -249,6 +248,7 @@ function record(type: "notes" | "reply") {
             v-for="t in ['消息', '处理记录']"
             @click="tab = t"
             :class="{ active: tab === t }"
+            :aria-pressed="tab === t"
           >
             {{ t }}
             <small>{{
@@ -305,7 +305,14 @@ function record(type: "notes" | "reply") {
                 "
               >
                 <option value="">待认领</option>
-                <option v-for="x in config.team">{{ x }}</option>
+                <option
+                  v-if="item.owner && !config.team.includes(item.owner)"
+                  :value="item.owner"
+                  disabled
+                >
+                  {{ item.owner }}（历史负责人）
+                </option>
+                <option v-for="x in config.team" :key="x">{{ x }}</option>
               </select>
             </label>
             <label

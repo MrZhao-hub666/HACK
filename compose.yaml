@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       DB_PATH: /data/leads.sqlite3
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       DEMO_DATA: ${DEMO_DATA:-1}
       ENABLE_SIMULATOR: ${ENABLE_SIMULATOR:-1}
       AUTO_ASSIGN: ${AUTO_ASSIGN:-0}

@@ -35,3 +35,17 @@ CREATE TABLE IF NOT EXISTS channel_sync (
 );
 CREATE INDEX IF NOT EXISTS messages_inquiry ON messages(inquiry_id,at);
 CREATE INDEX IF NOT EXISTS inquiries_last ON inquiries(last_in);
+
+CREATE TABLE IF NOT EXISTS users (
+ id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+ display_name TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK(role IN ('admin','sales')),
+ password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+ must_change INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS sessions (
+ token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ expires_at INTEGER NOT NULL, remember INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS login_limits (bucket TEXT PRIMARY KEY, hits INTEGER NOT NULL, until INTEGER NOT NULL);

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { navigation } from "./workspace";
 import Icon from "./Icon.vue";
-import type { Page, Config } from "../types";
+import type { Page, User } from "../types";
 
-defineProps<{ page: Page; waiting: number; actor: string; config: Config }>();
+defineProps<{ page: Page; waiting: number; user: User }>();
 const emit = defineEmits<{
   go: [id: Page];
-  actor: [name: string];
+  account: [];
   brief: [];
 }>();
 </script>
@@ -30,7 +30,7 @@ const emit = defineEmits<{
         :class="{ selected: page === n.id }"
         @click="emit('go', n.id)"
       >
-        <icon :name="n.icon" :size="18" /><span>{{ n.name }}</span>
+        <icon :name="n.icon" size="md" /><span>{{ n.name }}</span>
         <em
           v-if="n.id === 'inbox' && waiting"
           :aria-label="waiting + ' 条业务待回'"
@@ -41,26 +41,22 @@ const emit = defineEmits<{
   </nav>
   <div class="sidebar-foot">
     <button class="assistant-entry" @click="emit('brief')">
-      <span class="assistant-symbol"><icon name="spark" :size="18" /></span
-      ><b>Copilot 助手</b><icon name="chevron" :size="14" />
+      <span class="assistant-symbol"><icon name="spark" size="md" /></span
+      ><b>Copilot 助手</b><icon name="chevron" size="sm" />
     </button>
-    <div class="profile">
-      <span class="avatar">{{ actor.slice(-1) }}</span>
-      <label
-        ><small>当前销售</small
-        ><select
-          aria-label="当前销售"
-          :value="actor"
-          @change="
-            emit(
-              'actor',
-              ($event.target as HTMLInputElement | HTMLSelectElement).value,
-            )
-          "
-        >
-          <option v-for="name in config.team" :key="name">{{ name }}</option>
-        </select></label
+    <button
+      class="profile account-entry"
+      aria-label="我的账号与团队"
+      @click="emit('account')"
+    >
+      <span class="avatar">{{ user.display_name.slice(-1) }}</span>
+      <span class="profile-name"
+        ><strong>{{ user.display_name }}</strong
+        ><small>{{
+          user.role === "admin" ? "工作台管理员" : "销售成员"
+        }}</small></span
       >
-    </div>
+      <icon name="chevron" size="sm" />
+    </button>
   </div>
 </template>

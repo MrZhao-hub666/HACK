@@ -1,5 +1,8 @@
 import { createApp } from "vue";
-import App from "./App.vue";
+import SessionGate from "./SessionGate.vue";
+import "@fontsource-variable/noto-sans-sc";
+import "./tokens.css";
 import "./styles.css";
+import "./account.css";
 
-createApp(App).mount("#app");
+createApp(SessionGate).mount("#app");

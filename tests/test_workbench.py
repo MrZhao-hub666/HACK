@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from src.api.main import app
+from src.api.accounts import create_account, encode_password
+from src.api.db import database
 from src.api import channels, prospects
 
 
@@ -23,6 +25,15 @@ def client(tmp_path, monkeypatch):
     for key in ("BRAVE_API_KEY", "LLM_API_KEY", "AUTO_ASSIGN"):
         monkeypatch.delenv(key, raising=False)
     with TestClient(app) as c:
+        password = "Workbench-fixture-123"
+        encoded = encode_password(password)
+        with database(True) as db:
+            create_account(db, "lin.yue", "林悦", "admin", encoded, False)
+            create_account(db, "chen.zhou", "陈舟", "sales", encoded, False)
+        c.headers["X-Workspace-Request"] = "1"
+        assert c.post(
+            "/api/auth/login", json={"username": "lin.yue", "password": password}
+        ).is_success
         yield c
 
 
@@ -165,6 +176,7 @@ def test_validation_assignment_and_restart(client, monkeypatch):
     monkeypatch.setenv("ENABLE_SIMULATOR", "0")
     assert event(client).status_code == 403
     with TestClient(app) as another:
+        another.cookies.update(client.cookies)
         assert len(another.get("/api/inquiries").json()) == 2
 
 

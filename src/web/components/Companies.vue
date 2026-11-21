@@ -93,7 +93,7 @@ onMounted(() => {
     <div class="cards">
       <article v-for="c in filtered" :key="c.id" class="companycard">
         <div class="line">
-          <span class="business-mark"><icon name="building" :size="20" /></span>
+          <span class="business-mark"><icon name="building" size="md" /></span>
           <small>{{ c.source }}</small>
         </div>
         <h3>{{ c.name }}</h3>
@@ -114,14 +114,14 @@ onMounted(() => {
               :href="safeLink(c.website)"
               target="_blank"
               rel="noopener noreferrer"
-              >官网 ↗</a
+              >官网 <icon name="external" size="sm" /></a
             >
             <a
               v-if="c.social"
               :href="safeLink(c.social)"
               target="_blank"
               rel="noopener noreferrer"
-              >社交主页 ↗</a
+              >社交主页 <icon name="external" size="sm" /></a
             >
           </div>
           <a
@@ -129,7 +129,7 @@ onMounted(() => {
             :href="safeLink(c.evidence_url)"
             target="_blank"
             rel="noopener noreferrer"
-            >业务依据 ↗</a
+            >业务依据 <icon name="external" size="sm" /></a
           >
           <button class="ghost" @click="start(c)">编辑档案</button>
         </div>

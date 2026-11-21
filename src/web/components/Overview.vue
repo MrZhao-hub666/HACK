@@ -30,7 +30,7 @@ const ring = computed(() => {
       start +
       "% " +
       (end - gap) +
-      "%, white " +
+      "%, var(--paper) " +
       (end - gap) +
       "% " +
       end +
@@ -40,7 +40,7 @@ const ring = computed(() => {
   });
   return segments.length
     ? "conic-gradient(" + segments.join(",") + ")"
-    : "#ececf5";
+    : "var(--neutral-pale)";
 });
 </script>
 
@@ -50,7 +50,7 @@ const ring = computed(() => {
       <div class="hero-art" aria-hidden="true"></div>
       <div class="hero-copy">
         <div class="copilot-label">
-          <icon name="spark" :size="14" /> SALES COPILOT
+          <icon name="spark" size="sm" /> SALES COPILOT
         </div>
         <h1>海外销售工作台</h1>
         <p v-if="ready">
@@ -62,9 +62,9 @@ const ring = computed(() => {
         </p>
         <p v-else>集中查看海外询盘、客户档案与跟进安排。</p>
         <button class="primary brief-button" @click="emit('brief')">
-          <icon name="spark" :size="16" />查看跟进简报<icon
+          <icon name="spark" size="sm" />查看跟进简报<icon
             name="arrow"
-            :size="15"
+            size="sm"
           />
         </button>
       </div>
@@ -79,12 +79,12 @@ const ring = computed(() => {
       >
         <span class="metric-head"
           ><span class="icon-tile" :class="m.tone"
-            ><icon :name="m.icon" :size="17" /></span
+            ><icon :name="m.icon" size="md" /></span
           >{{ m.name }}</span
         >
         <strong>{{ ready ? m.val : "—" }}</strong>
         <span class="metric-foot"
-          >{{ m.desc }}<icon name="upRight" :size="14"
+          >{{ m.desc }}<icon name="upRight" size="sm"
         /></span>
       </button>
     </div>
@@ -99,7 +99,7 @@ const ring = computed(() => {
             class="textbtn more"
             @click="emit('navigate', 'inbox', '业务待回')"
           >
-            查看全部<icon name="chevron" :size="14" />
+            查看全部<icon name="chevron" size="sm" />
           </button>
         </div>
         <div class="priority-head">
@@ -114,7 +114,7 @@ const ring = computed(() => {
         >
           <span class="buyer-cell"
             ><span class="channel-tile" :class="channelStyles[r.channel]?.tone"
-              ><icon :name="channelStyles[r.channel]?.icon" :size="17"
+              ><icon :name="channelStyles[r.channel]?.icon" size="md"
             /></span>
             <span class="buyer-label"
               ><strong>{{ r.buyer }}</strong
@@ -134,7 +134,7 @@ const ring = computed(() => {
           >
           <span class="priority-owner">{{ r.owner || "待认领" }}</span
           ><span class="row-trailing"
-            >{{ age(r.last_in) }}前<icon name="chevron" :size="13"
+            >{{ age(r.last_in) }}前<icon name="chevron" size="sm"
           /></span>
         </button>
         <div v-if="!queue.length" class="empty">
