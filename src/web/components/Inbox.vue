@@ -103,7 +103,6 @@ async function mutate(
       method,
       {
         ...body,
-        actor: props.actor,
       },
     );
     if (selected.value === id) {
@@ -195,9 +194,7 @@ function record(type: "notes" | "reply") {
               ><span
                 class="channel-mini"
                 :class="channelStyles[r.channel]?.tone"
-                ><icon
-                  :name="channelStyles[r.channel]?.icon"
-                  size="sm" /></span
+                ><icon :name="channelStyles[r.channel]?.icon" size="sm" /></span
               >{{ channels[r.channel] }}</span
             >
             <small>#{{ String(r.id).padStart(4, "0") }}</small>
@@ -308,7 +305,14 @@ function record(type: "notes" | "reply") {
                 "
               >
                 <option value="">待认领</option>
-                <option v-for="x in config.team">{{ x }}</option>
+                <option
+                  v-if="item.owner && !config.team.includes(item.owner)"
+                  :value="item.owner"
+                  disabled
+                >
+                  {{ item.owner }}（历史负责人）
+                </option>
+                <option v-for="x in config.team" :key="x">{{ x }}</option>
               </select>
             </label>
             <label

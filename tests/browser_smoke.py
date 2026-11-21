@@ -11,6 +11,8 @@ import uvicorn
 from playwright.sync_api import sync_playwright, expect
 
 from src.api.main import app
+from src.api.accounts import create_account, encode_password
+from src.api.db import database
 
 
 def main():
@@ -32,20 +34,39 @@ def main():
                 if server.started:
                     break
                 time.sleep(0.05)
+            initial = "Smoke-initial-password"
+            chosen = "Smoke-personal-password"
+            with database(True) as db:
+                encoded = encode_password(initial)
+                create_account(db, "lin.yue", "林悦", "admin", encoded)
+                create_account(db, "chen.zhou", "陈舟", "sales", encoded)
             with sync_playwright() as pw:
                 browser = pw.chromium.launch()
                 page = browser.new_page(viewport={"width": 1440, "height": 1000})
                 errors = []
                 page.on("pageerror", lambda err: errors.append(str(err)))
                 page.goto(url)
-                expect(page.get_by_role("heading", name="海外销售工作台")).to_be_visible()
+                expect(page.get_by_role("heading", name="登录工作台")).to_be_visible()
+                page.get_by_role("textbox", name="账号", exact=True).fill("lin.yue")
+                page.locator('input[name="password"]').fill(initial)
+                page.get_by_role("button", name="登录", exact=True).click()
+                expect(page.get_by_role("heading", name="设置新密码")).to_be_visible()
+                page.get_by_label("当前密码", exact=True).fill(initial)
+                page.get_by_label("新密码", exact=True).fill(chosen)
+                page.get_by_label("确认新密码", exact=True).fill(chosen)
+                page.get_by_role("button", name="保存新密码").click()
+                expect(
+                    page.get_by_role("heading", name="海外销售工作台")
+                ).to_be_visible()
                 heading = page.get_by_role("heading", name="海外销售工作台")
                 assert heading.evaluate("""async el => {
                     const font = getComputedStyle(el).fontFamily;
                     const faces = await document.fonts.load('600 16px "Noto Sans SC Variable"', el.textContent);
                     return font.includes("Noto Sans SC Variable") && faces.length > 0;
                 }""")
-                expect(page.locator(".desktop-nav .lucide-layout-dashboard")).to_be_visible()
+                expect(
+                    page.locator(".desktop-nav .lucide-layout-dashboard")
+                ).to_be_visible()
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 page.get_by_role("button", name="查看跟进简报").click()
@@ -105,11 +126,39 @@ def main():
                 )
                 page.keyboard.press("Escape")
                 expect(menu).to_be_focused()
-                for name in ["工作台总览", "买家发现", "客户档案", "消息补录", "渠道模拟器", "询盘收件箱"]:
+                for name in [
+                    "工作台总览",
+                    "买家发现",
+                    "客户档案",
+                    "消息补录",
+                    "渠道模拟器",
+                    "询盘收件箱",
+                ]:
                     page.get_by_role("button", name="打开导航").click()
                     page.locator(".mobile-nav").get_by_role("button", name=name).click()
-                    expect(page.locator("h1")).to_have_text("海外销售工作台" if name == "工作台总览" else name)
-                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), name
+                    expect(page.locator("h1")).to_have_text(
+                        "海外销售工作台" if name == "工作台总览" else name
+                    )
+                    assert page.evaluate(
+                        "document.documentElement.scrollWidth <= innerWidth"
+                    ), name
+                page.get_by_role("button", name="打开导航").click()
+                page.get_by_role("button", name="我的账号与团队").click()
+                page.get_by_role("button", name="成员管理").click()
+                page.get_by_role("button", name="添加成员").click()
+                page.get_by_label("登录账号").fill("new.sales")
+                page.get_by_label("成员姓名").fill("新成员")
+                page.get_by_label("临时密码").fill("Temporary-new-member")
+                page.get_by_role("button", name="创建成员").click()
+                expect(page.locator(".member-list")).to_contain_text("new.sales")
+                page.get_by_role("button", name="我的账号", exact=True).click()
+                page.get_by_role("button", name="退出登录").click()
+                expect(page.get_by_role("heading", name="登录工作台")).to_be_visible()
+                page.reload()
+                expect(page.get_by_role("heading", name="登录工作台")).to_be_visible()
+                assert page.evaluate(
+                    "document.documentElement.scrollWidth <= innerWidth"
+                )
                 assert not errors, errors
                 browser.close()
         finally:

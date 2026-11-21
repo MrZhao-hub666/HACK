@@ -67,11 +67,23 @@ class InquiryEdit(Input):
     intent: str | None = Field(default=None, max_length=40)
     next_action: str | None = Field(default=None, max_length=500)
     company_id: int | None = None
-    actor: str = Field(default="销售", min_length=1, max_length=80)
+    actor: str = Field(
+        default="销售",
+        min_length=1,
+        max_length=80,
+        deprecated=True,
+        description="旧客户端兼容字段，经办人以登录会话为准",
+    )
 
 
 class Note(Input):
-    actor: str = Field(default="销售", min_length=1, max_length=80)
+    actor: str = Field(
+        default="销售",
+        min_length=1,
+        max_length=80,
+        deprecated=True,
+        description="旧客户端兼容字段，经办人以登录会话为准",
+    )
     text: str = Field(min_length=1, max_length=4000)
 
 
@@ -81,4 +93,10 @@ class Reply(Note):
 
 class Merge(Input):
     target_id: int = Field(gt=0)
-    actor: str = Field(default="销售", min_length=1, max_length=80)
+    actor: str = Field(
+        default="销售",
+        min_length=1,
+        max_length=80,
+        deprecated=True,
+        description="旧客户端兼容字段，经办人以登录会话为准",
+    )

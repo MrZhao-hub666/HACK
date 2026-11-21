@@ -1,4 +1,10 @@
 import {
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  LogOut,
+  UserRound,
+  UserRoundPlus,
   ArrowRight,
   ArrowUpRight,
   Building2,
@@ -30,6 +36,12 @@ import {
 } from "@lucide/vue";
 
 export const icons = {
+  eye: Eye,
+  eyeOff: EyeOff,
+  lock: LockKeyhole,
+  logout: LogOut,
+  user: UserRound,
+  addUser: UserRoundPlus,
   arrow: ArrowRight,
   upRight: ArrowUpRight,
   building: Building2,

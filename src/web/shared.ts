@@ -41,6 +41,14 @@ export const overnight = (row: InquiryRow) => Boolean(row.night_unanswered);
 export function relevant(row: InquiryRow) {
   return !["一般互动", "待判断"].includes(row.intent);
 }
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export async function api<T>(
   path: string,
   method = "GET",
@@ -50,7 +58,12 @@ export async function api<T>(
   try {
     res = await fetch("/api" + path, {
       method,
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Workspace-Request": "1",
+      },
       body: data === undefined ? undefined : JSON.stringify(data),
     });
   } catch {
@@ -58,7 +71,10 @@ export async function api<T>(
   }
   const out = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw Error(
+    if (res.status === 401 && !["/auth/login", "/auth/me"].includes(path))
+      window.dispatchEvent(new Event("workspace-session-invalid"));
+    throw new ApiError(
+      res.status,
       typeof out.detail === "string"
         ? out.detail
         : "提交失败，请检查必填字段与数据格式",

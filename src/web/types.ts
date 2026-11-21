@@ -133,3 +133,16 @@ export interface Metric {
   page: Page;
   filter?: Filter;
 }
+
+export interface User {
+  id: number;
+  username: string;
+  display_name: string;
+  role: "admin" | "sales";
+  active: boolean;
+  must_change: boolean;
+}
+export interface Session {
+  user: User;
+  expires_at: number;
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import Inbox from "./components/Inbox.vue";
 import Discovery from "./components/Discovery.vue";
 import Companies from "./components/Companies.vue";
@@ -21,9 +21,12 @@ import type {
   Filter,
   InquiryRow,
   Metric,
+  User,
   Page,
 } from "./types";
 
+const props = defineProps<{ user: User }>();
+const emit = defineEmits<{ account: [] }>();
 const descriptions = {
   inbox: "阅读海外来信、分派负责人，接续每一次跟进。",
   discovery: "按目标市场寻找买家，核查业务证据与采购能力。",
@@ -44,14 +47,14 @@ const route = ref(readRoute()),
   rows = ref<InquiryRow[]>([]),
   companies = ref<Company[]>([]);
 const config = ref<Config>({
-  team: ["林悦"],
+  team: [],
   intents: [],
   demo: false,
   llm: false,
   live_search: false,
   receivers: [],
 });
-const actor = ref(localStorage.getItem("gy-actor") || "林悦");
+const actor = computed(() => props.user.display_name);
 const failed = ref(""),
   ready = ref(false),
   refreshing = ref(false);
@@ -119,7 +122,6 @@ async function reload(manual = false) {
     rows.value = r;
     companies.value = c;
     config.value = conf;
-    if (!conf.team.includes(actor.value)) actor.value = conf.team[0];
     ready.value = true;
     failed.value = "";
     if (manual === true) toast("数据已刷新");
@@ -149,7 +151,7 @@ function hash() {
   window.scrollTo(0, 0);
 }
 let timer: ReturnType<typeof setInterval>;
-watch(actor, (v) => localStorage.setItem("gy-actor", v));
+defineExpose({ reload });
 onMounted(() => {
   reload();
   addEventListener("hashchange", hash);
@@ -170,10 +172,12 @@ onUnmounted(() => {
       <WorkspaceNav
         :page="page"
         :waiting="queue.length"
-        :actor="actor"
-        :config="config"
+        :user="user"
         @go="go"
-        @actor="actor = $event"
+        @account="
+          mobileNav?.close();
+          emit('account');
+        "
         @brief="showBrief"
       />
     </aside>
@@ -194,10 +198,12 @@ onUnmounted(() => {
         <WorkspaceNav
           :page="page"
           :waiting="queue.length"
-          :actor="actor"
-          :config="config"
+          :user="user"
           @go="go"
-          @actor="actor = $event"
+          @account="
+            mobileNav?.close();
+            emit('account');
+          "
           @brief="showBrief"
         />
       </div>
@@ -322,6 +328,10 @@ onUnmounted(() => {
       @company="go('companies', null, $event)"
       @reload="reload"
     />
-    <Transition name="toast"><div class="toast" v-if="notice" role="status">{{ notice }}</div></Transition>
+    <Transition name="toast"
+      ><div class="toast" v-if="notice" role="status">
+        {{ notice }}
+      </div></Transition
+    >
   </div>
 </template>
