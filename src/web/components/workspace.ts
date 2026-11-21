@@ -12,6 +12,7 @@ export const navigation: {
       { id: "overview", name: "工作台总览", icon: "dashboard" },
       { id: "inbox", name: "询盘收件箱", icon: "inbox" },
       { id: "discovery", name: "买家发现", icon: "compass" },
+      { id: "domestic", name: "国内线索", icon: "message" },
       { id: "companies", name: "客户档案", icon: "building" },
     ],
   },
@@ -25,6 +26,8 @@ export const navigation: {
 ];
 export const navPages = navigation.flatMap((group) => group.pages);
 export const channelStyles = {
+  dy: { color: "var(--channel-tiktok)", icon: "message", tone: "navy" },
+  xhs: { color: "var(--channel-instagram)", icon: "message", tone: "orange" },
   messenger: { color: "var(--channel-messenger)", icon: "bolt", tone: "navy" },
   facebook_comment: {
     color: "var(--channel-fb-comment)",

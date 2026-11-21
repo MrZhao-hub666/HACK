@@ -16,6 +16,7 @@ from .alternatives import router as alternatives_router
 from .auth import browser_write, router as auth_router, workspace_user
 from .channels import receiver_settings, router
 from .db import audit, database, initialize, one, utc
+from .domestic import router as domestic_router
 from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
 from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
@@ -245,6 +246,7 @@ def link(ident: int, req: Merge, user=Depends(workspace_user)):
 
 
 business.include_router(alternatives_router)
+business.include_router(domestic_router)
 app.include_router(business)
 
 web = Path(__file__).resolve().parent.parent / "web" / "dist"

@@ -119,6 +119,26 @@ def check_alternative_buyers(page):
     expect(panel).to_contain_text("负责人 · 林悦")
 
 
+def check_domestic(page):
+    page.get_by_role("button", name="国内线索", exact=True).click()
+    page.get_by_role("button", name="载入测试样例").click()
+    cards = page.locator(".domestic-card")
+    expect(cards).to_have_count(2)
+    expect(cards.filter(has_text="80 套")).to_contain_text("重卡刹车片")
+    page.get_by_role("textbox", name="关键词", exact=True).fill("29087")
+    page.get_by_role("button", name="搜索线索").click()
+    expect(cards).to_have_count(1)
+    expect(cards.first).to_contain_text("小红书")
+    page.get_by_role("textbox", name="关键词", exact=True).fill("")
+    page.get_by_label("内容意图").select_option("供应推广")
+    page.get_by_role("button", name="搜索线索").click()
+    expect(cards.first).to_contain_text("厂家直销")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.get_by_role("button", name="工作台总览", exact=True).click()
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ.update(
@@ -175,6 +195,7 @@ def main():
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
+                check_domestic(page)
                 page.get_by_role("button", name="查看跟进简报").click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")
                 expect(brief.locator(".brief-card")).to_have_count(4)

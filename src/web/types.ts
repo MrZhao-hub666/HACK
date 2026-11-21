@@ -1,6 +1,8 @@
 import type { IconName } from "./icons";
 
 export type Channel =
+  | "dy"
+  | "xhs"
   | "messenger"
   | "facebook_comment"
   | "facebook_form"
@@ -18,6 +20,7 @@ export type Page =
   | "overview"
   | "inbox"
   | "discovery"
+  | "domestic"
   | "companies"
   | "simulator"
   | "manual";
