@@ -25,6 +25,8 @@ export const navigation: {
 ];
 export const navPages = navigation.flatMap((group) => group.pages);
 export const channelStyles = {
+  dy: { color: "var(--channel-tiktok)", icon: "message", tone: "navy" },
+  xhs: { color: "var(--channel-instagram)", icon: "message", tone: "orange" },
   messenger: { color: "var(--channel-messenger)", icon: "bolt", tone: "navy" },
   facebook_comment: {
     color: "var(--channel-fb-comment)",

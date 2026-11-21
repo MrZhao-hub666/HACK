@@ -1,6 +1,8 @@
 import type { IconName } from "./icons";
 
 export type Channel =
+  | "dy"
+  | "xhs"
   | "messenger"
   | "facebook_comment"
   | "facebook_form"
@@ -79,6 +81,28 @@ export interface DiscoveryResult {
   mode: "samples" | "live";
   query: string;
   items: Candidate[];
+}
+export interface DomesticSignal {
+  id: number;
+  platform: Extract<Channel, "dy" | "xhs">;
+  kind: "post" | "comment";
+  body: string;
+  parent_text: string;
+  published: string;
+  keyword: string;
+  signal: string;
+  source_url: string;
+  quantities: string[];
+  codes: string[];
+  owned: boolean;
+  demo: number;
+  company_id: number | null;
+  inquiry_id: number | null;
+}
+export interface DomesticSearchResult {
+  items: DomesticSignal[];
+  total: number;
+  index_state: "indexed" | "awaiting_sync" | "unconfigured";
 }
 export interface Receipt {
   inquiry_id: number;

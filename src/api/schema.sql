@@ -71,3 +71,11 @@ CREATE TABLE IF NOT EXISTS alternative_slots (
 
 CREATE INDEX IF NOT EXISTS company_name_lookup ON companies(lower(name));
 CREATE INDEX IF NOT EXISTS inquiry_company_owner ON inquiries(company_id,owner) WHERE merged_into IS NULL;
+
+CREATE TABLE IF NOT EXISTS domestic_signals (
+ id INTEGER PRIMARY KEY, platform TEXT NOT NULL, kind TEXT NOT NULL, external_id TEXT NOT NULL,
+ parent_id TEXT NOT NULL, body TEXT NOT NULL, keyword TEXT NOT NULL, published TEXT NOT NULL,
+ demo INTEGER NOT NULL DEFAULT 0, company_id INTEGER REFERENCES companies(id),
+ UNIQUE(platform,kind,external_id,demo)
+);
+CREATE INDEX IF NOT EXISTS domestic_published ON domestic_signals(published DESC,id DESC);
