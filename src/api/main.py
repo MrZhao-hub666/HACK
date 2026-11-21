@@ -124,16 +124,20 @@ def adopt(req: NewCompany, user=Depends(workspace_user)):
 
 class CompanyUpdate(Company):
     owner: str | None = Field(default=None, max_length=80)
+    confirmed_deal: bool | None = None
 
 
 @business.put("/api/companies/{ident}")
-def company_edit(ident: int, req: CompanyUpdate):
-    data = req.model_dump(exclude_none=True)
+def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
+    data = req.model_dump(exclude_none=True, exclude={"confirmed_deal"})
     for key in ("website", "social", "evidence_url"):
         valid_url(data[key])
     data["domain"] = host(data["website"])
     with database(True) as db:
         previous = one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+        if req.confirmed_deal is not None and req.confirmed_deal != bool(previous["won_at"]):
+            data["won_at"] = utc() if req.confirmed_deal else None
+            data["won_by"] = user["display_name"] if req.confirmed_deal else None
         if (
             data.get("owner")
             and data["owner"] != previous["owner"]

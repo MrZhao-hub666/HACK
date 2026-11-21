@@ -609,6 +609,17 @@ def dashboard():
         return snapshot(db)
 
 
+@router.get("/summary")
+def outreach_summary():
+    with database() as db:
+        return one(db, """SELECT
+            count(CASE WHEN source IN ('上海法兰克福','广交会') THEN 1 END) AS fair_records,
+            count(CASE WHEN verdict='待核实' THEN 1 END) AS pending,
+            count(DISTINCT CASE WHEN verdict='已核实' THEN company_id END) AS linked_buyers,
+            (SELECT count(*) FROM outreach_drafts) AS drafts
+            FROM outreach_evidence""")
+
+
 @router.get("/export.xlsx")
 def export(
     grade: Literal["A", "B", "C", "全部", "待评级"] = Query("全部"),

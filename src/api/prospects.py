@@ -241,7 +241,10 @@ def save_company(db, data, source, checked=None, owner=""):
     domain = host(data["website"])
     existing = matching_company(db, data)
     if existing:
-        db.execute("UPDATE companies SET saved=1 WHERE id=?", (existing["id"],))
+        db.execute(
+            "UPDATE companies SET saved=1,archived_at=coalesce(archived_at,?) WHERE id=? AND saved=0",
+            (utc(), existing["id"]),
+        )
         return one(db, "SELECT * FROM companies WHERE id=?", (existing["id"],))
     row = {
         **data,
@@ -249,6 +252,7 @@ def save_company(db, data, source, checked=None, owner=""):
         "owner": owner,
         "source": source,
         "saved": 1,
+        "archived_at": utc(),
         "checked": checked or utc()[:10],
     }
     cols = list(row)

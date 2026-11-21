@@ -39,6 +39,11 @@ def initialize():
         db.execute("PRAGMA journal_mode=WAL")
         db.executescript((HERE / "schema.sql").read_text(encoding="utf8"))
         db.execute("BEGIN IMMEDIATE")
+        # Evidence check dates on older volumes do not establish when a buyer was archived.
+        company_columns = {c["name"] for c in db.execute("PRAGMA table_info(companies)")}
+        for column in ("archived_at", "won_at", "won_by"):
+            if column not in company_columns:
+                db.execute(f"ALTER TABLE companies ADD COLUMN {column} TEXT")
         if "contact" not in {
             c["name"] for c in db.execute("PRAGMA table_info(companies)")
         }:

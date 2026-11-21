@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import LoadingSkeleton from "./LoadingSkeleton.vue";
-import { computed } from "vue";
-import { channels, age } from "../shared";
+import { computed, ref, watch } from "vue";
+import { channels, age, api, errorMessage } from "../shared";
 import { channelStyles, channelCounts } from "./workspace";
 import Icon from "./Icon.vue";
-import type { InquiryRow, Metric, Page, Filter } from "../types";
+import type { Company, InquiryRow, Metric, Page, Filter } from "../types";
+import BuyerAnalytics from "./BuyerAnalytics.vue";
 
 const props = defineProps<{
   rows: InquiryRow[];
+  companies: Company[];
   queue: InquiryRow[];
   metrics: Metric[];
   actor: string;
@@ -20,6 +22,38 @@ const emit = defineEmits<{
   brief: [];
 }>();
 const distribution = computed(() => channelCounts(props.rows));
+type OutreachSummary = {
+  fair_records: number;
+  pending: number;
+  linked_buyers: number;
+  drafts: number;
+};
+const outreach = ref<OutreachSummary | null>(null),
+  statsError = ref("");
+const outreachMetrics = [
+  { key: "fair_records", label: "已登记展会线索", unit: "条" },
+  { key: "pending", label: "待核实来源记录", unit: "条" },
+  { key: "linked_buyers", label: "核实并关联的企业", unit: "家" },
+  { key: "drafts", label: "展位邀约草稿", unit: "封" },
+] as const;
+let requestId = 0;
+async function refreshSummary() {
+  const id = ++requestId;
+  statsError.value = "";
+  try {
+    const summary = await api<OutreachSummary>("/outreach/summary");
+    if (id === requestId) outreach.value = summary;
+  } catch (e) {
+    if (id === requestId) statsError.value = errorMessage(e);
+  }
+}
+watch(
+  () => [props.ready, props.companies] as const,
+  () => {
+    if (props.ready) refreshSummary();
+  },
+  { immediate: true },
+);
 const ring = computed(() => {
   let start = 0;
   const segments = distribution.value.map((entry) => {
@@ -71,9 +105,22 @@ const ring = computed(() => {
         </button>
       </div>
     </section>
+    <BuyerAnalytics v-if="ready" :companies="companies" :rows="rows" />
+    <LoadingSkeleton
+      v-else-if="loading"
+      layout="lines"
+      label="正在加载客户经营统计"
+    />
     <template v-if="loading || ready">
       <span v-if="loading" class="sr-only" role="status">正在加载业务概览</span>
-      <div class="section-label"><h2>业务概览</h2></div>
+      <div class="section-label">
+        <h2>询盘跟进</h2>
+        <small
+          v-if="ready && rows.some((r) => r.origin.includes('模拟'))"
+          class="meta"
+          >含模拟来信</small
+        >
+      </div>
       <div class="metrics" :aria-busy="loading">
         <button
           v-for="m in metrics"
@@ -187,6 +234,65 @@ const ring = computed(() => {
           </template>
         </section>
       </div>
+      <section v-if="ready" class="panel outreach-summary">
+        <div class="panelhead">
+          <div class="sect">
+            <icon name="calendar" class="heading-icon" />
+            <h2>展会拓客进展</h2>
+          </div>
+          <button class="textbtn" @click="emit('navigate', 'outreach')">
+            查看拓客记录 <icon name="chevron" size="sm" />
+          </button>
+        </div>
+        <div v-if="statsError" class="notice" role="alert">
+          {{ statsError }} <span v-if="outreach">当前显示上次读取的统计。</span
+          ><button class="textbtn" @click="refreshSummary">重试拓客统计</button>
+        </div>
+        <dl v-if="outreach" class="outreach-totals">
+          <div v-for="m in outreachMetrics" :key="m.key">
+            <dt>{{ m.label }}</dt>
+            <dd>
+              {{ outreach[m.key] }} <small>{{ m.unit }}</small>
+            </dd>
+          </div>
+        </dl>
+        <LoadingSkeleton
+          v-else-if="!statsError"
+          layout="lines"
+          label="正在加载拓客统计"
+        />
+      </section>
     </template>
   </div>
 </template>
+<style scoped>
+.outreach-summary {
+  margin-top: var(--space-16);
+}
+.outreach-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: var(--space-16) var(--space-20);
+  margin: 0;
+  gap: var(--space-16);
+}
+.outreach-totals dt,
+.outreach-totals small {
+  font: var(--type-caption);
+  color: var(--muted);
+}
+.outreach-totals dd {
+  font: var(--type-headline-medium);
+  margin: var(--space-4) 0 0;
+}
+.section-label {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+@media (max-width: 650px) {
+  .outreach-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>

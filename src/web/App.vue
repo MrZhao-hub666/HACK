@@ -106,12 +106,13 @@ const metrics = computed<Metric[]>(() => [
     filter: "待认领",
   },
   {
-    name: "客户档案",
-    val: companies.value.length,
-    icon: "building",
+    name: "已结束询盘",
+    val: rows.value.filter((r) => matchesFilter(r, "已结束")).length,
+    icon: "check",
     tone: "ice",
-    desc: "已存档的企业",
-    page: "companies",
+    desc: "已结束的跟进事项",
+    page: "inbox",
+    filter: "已结束",
   },
 ]);
 let generation = 0;
@@ -276,6 +277,7 @@ onUnmounted(() => {
         </div>
         <Overview
           v-if="page === 'overview'"
+          :companies="companies"
           :rows="rows"
           :queue="queue"
           :metrics="metrics"

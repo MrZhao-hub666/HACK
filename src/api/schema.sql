@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS companies (
  contact TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',
  evidence TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '',
  source TEXT NOT NULL, checked TEXT NOT NULL, saved INTEGER NOT NULL DEFAULT 0,
- reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT ''
+ reviewed INTEGER NOT NULL DEFAULT 0, next_action TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+ archived_at TEXT, won_at TEXT, won_by TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS company_domain ON companies(domain) WHERE domain <> '';
 CREATE TABLE IF NOT EXISTS inquiries (

@@ -170,6 +170,79 @@ def check_outreach(page):
     page.set_viewport_size({"width": 1440, "height": 1000})
 
 
+def check_customer_statistics(context, url):
+    from datetime import datetime, timezone
+
+    page = context.new_page()
+    try:
+        page.clock.set_fixed_time(datetime(2026, 11, 20, 16, 30, tzinfo=timezone.utc))
+        base = context.request.get(url + "/api/companies").json()[0]
+        dates = [
+            "2026-11-20T16:01:00Z",
+            "2026-11-20T15:59:59Z",
+            "2026-11-03T03:00:00Z",
+            None,
+        ]
+        countries = ["MY", "Malaysia", "德国", ""]
+        test_buyers = [
+            dict(
+                base,
+                id=i + 100,
+                name=f"统计验收企业{i}",
+                country=countries[i],
+                archived_at=d,
+                outreach_grade="A" if i == 2 else None,
+                won_at=d if i == 1 else None,
+                owner="销售" if i == 2 else "",
+                source="广交会" if i < 2 else "销售录入",
+            )
+            for i, d in enumerate(dates)
+        ]
+        page.route("**/api/companies", lambda route: route.fulfill(json=test_buyers))
+        rows = context.request.get(url + "/api/inquiries").json()
+        for i, row in enumerate(rows):
+            row.update(
+                company_id=100 if i < 2 else 101, state="跟进中" if i < 2 else "已结束"
+            )
+        page.route("**/api/inquiries", lambda route: route.fulfill(json=rows))
+        page.goto(url + "/#overview")
+        for label, number in [
+            ("全部客户", 4),
+            ("今日新增", 1),
+            ("已确认成交", 1),
+            ("待分配客户", 3),
+            ("跟进中客户", 1),
+        ]:
+            expect(
+                page.get_by_role("button", name=f"{label} {number} 家，查看明细")
+            ).to_be_visible()
+        page.get_by_role("button", name="马来西亚 2 家 50%").click()
+        dialog = page.get_by_role("dialog", name="马来西亚")
+        expect(dialog.get_by_role("link")).to_have_count(2)
+        dialog.get_by_role("button", name="关闭明细").click()
+        page.get_by_label("客户分布维度").select_option("procurement")
+        expect(page.locator(".trend-summary strong")).to_have_text("2")
+        page.get_by_role("button", name="近30天").click()
+        expect(page.locator(".trend-summary strong")).to_have_text("3")
+        page.get_by_role("button", name="档龄", exact=True).click()
+        expect(page.get_by_role("button", name="入档时间未知 1 家 25%")).to_be_visible()
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.get_by_role("button", name="今日新增 1 家，查看明细").click()
+        expect(page.get_by_role("dialog").get_by_role("link")).to_contain_text(
+            "统计验收企业0"
+        )
+        page.keyboard.press("Escape")
+        test_buyers.clear()
+        page.reload()
+        expect(page.get_by_text("客户入档后显示分布")).to_be_visible()
+        expect(
+            page.get_by_role("button", name="全部客户 0 家，查看明细")
+        ).to_be_visible()
+    finally:
+        page.close()
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ.update(
@@ -226,6 +299,7 @@ def main():
                 expect(page.locator(".priority-row")).to_have_count(4)
                 expect(page.locator(".donut strong")).to_have_text("4")
                 check_loading_states(context, url)
+                check_customer_statistics(context, url)
                 page.get_by_role("button", name="查看跟进简报").click()
                 brief = page.get_by_role("dialog", name="销售跟进简报")
                 expect(brief.locator(".brief-card")).to_have_count(4)
