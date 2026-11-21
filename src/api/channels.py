@@ -78,7 +78,7 @@ def tracked(provider, operation, *args):
     except Exception:
         with database(True) as db:
             db.execute(
-                "INSERT INTO channel_sync(provider,last_attempt,error) VALUES(?,?,?) "
+                "INSERT INTO channel_sync(provider,last_attempt,error) VALUES(%s,%s,%s) "
                 "ON CONFLICT(provider) DO UPDATE SET last_attempt=excluded.last_attempt,error=excluded.error",
                 (provider, utc(), "接收失败，请检查授权与渠道重试记录"),
             )
@@ -88,7 +88,7 @@ def tracked(provider, operation, *args):
     at = utc()
     with database(True) as db:
         db.execute(
-            "INSERT INTO channel_sync VALUES(?,?,?,'') ON CONFLICT(provider) DO UPDATE SET "
+            "INSERT INTO channel_sync VALUES(%s,%s,%s,'') ON CONFLICT(provider) DO UPDATE SET "
             "last_attempt=excluded.last_attempt,last_success=excluded.last_success,error=''",
             (provider, at, at),
         )
@@ -280,9 +280,9 @@ def sync_wechat(kfid, token):
         )
         with database() as db:
             row = db.execute(
-                "SELECT value FROM cursors WHERE name=?", ("wx:" + kfid,)
+                "SELECT value FROM cursors WHERE name=%s", ("wx:" + kfid,)
             ).fetchone()
-        cursor = row[0] if row else ""
+        cursor = row["value"] if row else ""
         while True:
             result = remote_json(
                 "POST",
@@ -320,7 +320,7 @@ def sync_wechat(kfid, token):
             if nxt:
                 with database(True) as db:
                     db.execute(
-                        "INSERT INTO cursors VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                        "INSERT INTO cursors VALUES (%s,%s) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                         ("wx:" + kfid, nxt),
                     )
                 cursor = nxt

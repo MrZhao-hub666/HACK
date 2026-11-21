@@ -4,13 +4,14 @@
 
 ## 本地整合开发
 
-在 Windows 项目根目录依次运行 `start-backend.bat` 和 `start-frontend.bat`，打开 [销售工作台](http://127.0.0.1:5174)。需要 Docker Desktop、uv、Python 3.12 和 Node.js 22.12+。第一个脚本启动原来的 PostgreSQL，并并行启动两个带热加载的 API。第二个脚本在 `src/web` 下执行 `npm run dev`，使用 Vite 8.3.4。首次安装依赖需要联网。
+在 Windows 项目根目录依次运行 `start-backend.bat` 和 `start-frontend.bat`，打开 [销售工作台](http://127.0.0.1:5174)。需要 Docker Desktop、uv、Python 3.12 和 Node.js 22.12+。第一个脚本启动原来的 PostgreSQL，并启动带热加载的统一 FastAPI。第二个脚本在 `src/web` 下执行 `npm run dev`，使用 Vite 8.3.4。首次安装依赖需要联网。
 
 | 服务 | 本机地址或位置 |
 | --- | --- |
 | 统一 Vue 工作台，后续 UI 设计入口 | `src/web`，端口 5174 |
-| 获客、登录、询盘与选型交接 | `src/api`，端口 8081，SQLite 默认在 `data/leads.sqlite3` |
-| 产品目录、两级匹配、报价与 Excel 同步 | `src/backend`，端口 8000，PostgreSQL 默认端口 55432 |
+| 统一 FastAPI，含获客、登录、选型与报价 | `src/api/main.py`，本机端口 8081 |
+| 产品目录模块、两级匹配与 Excel 同步 | `src/backend/app`，由同一个 API 进程加载 |
+| PostgreSQL 16 | `catalog` 数据库，端口 55432；销售表在 `sales`，目录在 `public`、`domestic_catalog`、`foreign_catalog` |
 | 原独立目录维护界面 | `src/frontend`，需要单开时执行 `npm --prefix src/frontend run dev` |
 
 首次运行请在另一终端为本地工作台创建管理员，按提示设置自己的密码。
@@ -19,7 +20,7 @@
 .\.venv\Scripts\python.exe -m src.api.accounts init-admin --username admin --name 工作台管理员
 ```
 
-在「询盘收件箱」选中客户，打开「智能选型」。点击「根据询盘匹配型号」会读取最近最多 30 段客户来信、登记的销售回复和本次补充原话，调用本地目录匹配。客户补充框只参与当前匹配。系统保留有歧义的候选，返回追问、匹配依据、产品图和目录出处。销售确认规格、数量和计价单位后可以保存报价草稿，缺少有效价目时显示「待核价」。同一工作台可按询盘回看最近 25 份草稿。两个后端都需要启动。
+在「询盘收件箱」选中客户，打开「智能选型」。点击「根据询盘匹配型号」会读取最近最多 30 段客户来信、登记的销售回复和本次补充原话，调用本地目录匹配。客户补充框只参与当前匹配。系统保留有歧义的候选，返回追问、匹配依据、产品图和目录出处。销售确认规格、数量和计价单位后可以保存报价草稿，缺少有效价目时显示「待核价」。同一工作台可按询盘回看最近 25 份草稿。报价快照和询盘关联在同一数据库事务中保存。
 
 在另一台机器恢复选型目录时，将原资料包目录 `鼓式刹车片照片等8个文件`、`docs/materials` 和原有目录工作簿放回相同位置。企业资料和真实密钥由团队单独传递。选型后端的可选模型配置在 `src/backend/.env.local`，沿用 `LLM_API_KEY`、`LLM_BASE_URL` 和 `LLM_MODEL`。询盘选型默认走本地规则。
 
@@ -29,12 +30,16 @@
 docker compose up -d --build --wait
 ```
 
-容器版工作台在 [localhost:8080](http://localhost:8080)，复用获客卷 `kooying-leads_sales_data` 和目录卷 `guanying-catalog_catalog_pg`。本地开发的 SQLite 文件和容器版的 SQLite 卷分别保存各自的询盘与账号。容器版选型仍需在宿主机的 `src/backend` 目录运行下列命令。Docker Desktop 通过 `host.docker.internal` 调用它，其他部署可通过 `SELECTOR_URL` 指定 API 容器可达的选型服务地址。
+容器版工作台在 [localhost:8080](http://localhost:8080)。API 容器直接连接同一 PostgreSQL 服务。容器与本地开发入口共享账号、询盘和目录，数据卷为 `guanying-catalog_catalog_pg`。Compose 挂载工作簿目录用于双向同步，原始资料包以只读方式挂载。整库备份用 `pg_dump -Fc`，原始图片和 Excel 需要另行备份。
 
-```sh
-uv run --locked uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir app
+### 迁移已有获客数据
+
+其他机器升级前先停止旧服务写入，准备一致的旧库副本（包含未合并的 WAL）。启动数据库，并在首次启动新版 API 前运行以下命令。选择主库作为第一个参数；可额外传入同一套演示数据的容器副本。导入会拒绝有不同业务数据的副本或已使用的目标库。迁移按原 ID 复制全部 17 张旧表，逐行比对后提交，并在 `backups/` 保存两份来源的压缩逻辑备份。一个来源时只备份该库。
+
+```powershell
+docker compose up -d --wait db
+uv run --locked python -m scripts.migrate_leads data/leads.sqlite3
 ```
-
 
 在「海外销售工作台」横栏下切换统计标签。默认打开「客户经营统计」，按已入档企业统计全部客户、北京时间今日新增、已确认成交、待分配和跟进中客户。点击数字或图表可查看对应企业，再打开档案。客户分布可切换国家 / 地区、业务类型和采购能力；分级沿用展会拓客的 A/B/C 与待评级，来源按首次入档统计。入档趋势可查看近 7 天、近 30 天或互不重叠的档龄区间。升级前缺少入档时间的企业列为“入档时间未知”。销售在「客户档案 → 编辑档案 → 成交记录」确认或撤回成交。
 
@@ -42,7 +47,7 @@ uv run --locked uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --rel
 
 ## 管理员与团队登录
 
-首次部署后，从项目目录在交互式终端创建第一位管理员。命令会提示输入至少 12 个字符的临时密码。直接运行 Python 服务时，在使用相同 `DB_PATH` 的终端执行第二种命令。
+首次部署后，从项目目录在交互式终端创建第一位管理员。命令会提示输入至少 12 个字符的临时密码。直接运行 Python 服务时，在使用相同 PostgreSQL 连接配置 的终端执行第二种命令。
 
 ```sh
 # Docker Compose
@@ -118,7 +123,7 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 | 路径 | 用途 |
 |---|---|
 | `src/web/` | Vue 3 单文件组件、TypeScript 接口类型、Vite 构建和 Nginx 配置 |
-| `src/api/` | FastAPI、数据模型、SQLite、线索发现、渠道适配、消息归并 |
+| `src/api/` | FastAPI、PostgreSQL 销售数据模型、线索发现、渠道适配、消息归并 |
 | `docs/` | 原始需求分析、获客调研和联调手册 |
 | `tests/` | API 回归、并发去重、平台回调及真实浏览器烟测 |
 | `scripts/` | 可重复执行的目标验收命令 |
@@ -127,11 +132,12 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 ## 验收
 
 ```sh
-python -m pip install -r tests/requirements.txt
-python -m playwright install chromium
-python -m scripts.goal
+docker compose up -d --wait db
+uv sync --locked
+uv run python -m playwright install chromium
+uv run python -m scripts.goal
 ```
 
-仓库的 `goal` 验收入口从锁文件安装前端依赖，再执行 TypeScript 检查、Vite 构建、API 测试、Chromium 烟测和 Compose 配置检查。要同时构建并启动容器，可执行 `python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
+仓库的 `goal` 验收入口从锁文件安装前端依赖，再执行 TypeScript 检查、Vite 构建、API 测试、Chromium 烟测和 Compose 配置检查。要同时构建并启动容器，可执行 `uv run python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
 
 [架构设计](DESIGN.md) · [协作约定](AGENTS.md) · [接口与渠道联调](docs/接口与渠道联调.md) · [需求分析](docs/冠英黑客松需求分析.md) · [海外获客调研](docs/海外潜客发现与社交渠道接入.md)

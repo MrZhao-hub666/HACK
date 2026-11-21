@@ -23,8 +23,11 @@ services:
         PYTHON_IMAGE: ${WORKBENCH_PYTHON_IMAGE:-python:3.12-slim}
     restart: unless-stopped
     environment:
-      SELECTOR_URL: ${SELECTOR_URL:-http://host.docker.internal:8000}
-      DB_PATH: /data/leads.sqlite3
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: catalog
+      PGUSER: catalog
+      PGPASSWORD: ${POSTGRES_PASSWORD:-catalog_local}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       DEMO_DATA: ${DEMO_DATA:-1}
       ENABLE_SIMULATOR: ${ENABLE_SIMULATOR:-1}
@@ -58,8 +61,12 @@ services:
       WX_AES_KEY: ${WX_AES_KEY:-}
       WX_CORP_ID: ${WX_CORP_ID:-}
       WX_KF_SECRET: ${WX_KF_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - sales_data:/data
+      - ./docs:/app/docs
+      - ./鼓式刹车片照片等8个文件:/app/鼓式刹车片照片等8个文件:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
       interval: 10s
@@ -85,5 +92,3 @@ services:
       retries: 3
 volumes:
   catalog_pg:
-  sales_data:
-    name: kooying-leads_sales_data

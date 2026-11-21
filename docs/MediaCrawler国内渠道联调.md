@@ -22,7 +22,7 @@ docker compose exec -T api python -m src.api.domestic import dy - < export.json
 Get-Content -Raw -Encoding utf8 .\export.json | docker compose exec -T api python -m src.api.domestic import dy -
 ```
 
-直接运行 Python 部署时，在使用相同 `DB_PATH` 的终端执行 `python -m src.api.domestic import dy export.json`。抖音行需要 `aweme_id`，小红书需要 `note_id`，评论还需要 `comment_id` 和 `content`。作品读取 `title`、`desc`，时间支持秒或毫秒。索引保存平台、外部 ID、原文、检索词和发布时间。原作品链接由平台和作品 ID 构成，部分原帖需在平台内登录查看。重复导入会更新记录并保留已关联的档案。
+直接运行 Python 部署时，在使用相同 PostgreSQL 连接配置 的终端执行 `python -m src.api.domestic import dy export.json`。抖音行需要 `aweme_id`，小红书需要 `note_id`，评论还需要 `comment_id` 和 `content`。作品读取 `title`、`desc`，时间支持秒或毫秒。索引保存平台、外部 ID、原文、检索词和发布时间。原作品链接由平台和作品 ID 构成，部分原帖需在平台内登录查看。重复导入会更新记录并保留已关联的档案。
 
 ## 连接已有的 MediaCrawler WebUI
 

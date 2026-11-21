@@ -165,21 +165,21 @@ def ingest(platform, rows, demo=False):
                 continue
             previous = db.execute(
                 """SELECT parent_id,body,keyword,published FROM domestic_signals
-                  WHERE platform=? AND kind=? AND external_id=? AND demo=?""",
-                (*values[:3], demo),
+                  WHERE platform=%s AND kind=%s AND external_id=%s AND demo=%s""",
+                (*values[:3], int(demo)),
             ).fetchone()
             if previous is None:
                 db.execute(
                     """INSERT INTO domestic_signals(platform,kind,external_id,parent_id,body,keyword,published,demo)
-                        VALUES(?,?,?,?,?,?,?,?)""",
-                    (*values, demo),
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (*values, int(demo)),
                 )
                 stats["inserted"] += 1
-            elif tuple(previous) != values[3:]:
+            elif tuple(previous.values()) != values[3:]:
                 db.execute(
-                    """UPDATE domestic_signals SET parent_id=?,body=?,keyword=?,published=?
-                          WHERE platform=? AND kind=? AND external_id=? AND demo=?""",
-                    (*values[3:], *values[:3], demo),
+                    """UPDATE domestic_signals SET parent_id=%s,body=%s,keyword=%s,published=%s
+                          WHERE platform=%s AND kind=%s AND external_id=%s AND demo=%s""",
+                    (*values[3:], *values[:3], int(demo)),
                 )
                 stats["updated"] += 1
             else:
@@ -297,9 +297,9 @@ def search(
 ):
     sql = (
         JOINED
-        + """ WHERE (:platform IS NULL OR s.platform=:platform) AND
-        (instr(lower(s.body),lower(:q)) OR instr(lower(s.keyword),lower(:q)) OR instr(lower(coalesce(p.body,'')),lower(:q))
-         OR instr(lower(coalesce(p.keyword,'')),lower(:q)))
+        + """ WHERE (%(platform)s::text IS NULL OR s.platform= %(platform)s) AND
+        (strpos(lower(s.body),lower(%(q)s)) > 0 OR strpos(lower(s.keyword),lower(%(q)s)) > 0 OR strpos(lower(coalesce(p.body,'')),lower(%(q)s)) > 0
+         OR strpos(lower(coalesce(p.keyword,'')),lower(%(q)s)) > 0)
         ORDER BY s.published DESC,s.id DESC"""
     )
     items = []
@@ -325,7 +325,7 @@ def search(
 @router.post("/signals/{ident}/adopt")
 def adopt(ident: int, req: Adopt, user=Depends(workspace_user)):
     with database(True) as db:
-        signal = describe(one(db, JOINED + " WHERE s.id=?", (ident,)))
+        signal = describe(one(db, JOINED + " WHERE s.id=%s", (ident,)))
         if signal["company_id"]:
             return {"company_id": signal["company_id"]}
         if signal["demo"]:
@@ -344,7 +344,7 @@ def adopt(ident: int, req: Adopt, user=Depends(workspace_user)):
             owner=user["display_name"],
         )
         db.execute(
-            "UPDATE domestic_signals SET company_id=? WHERE id=?", (saved["id"], ident)
+            "UPDATE domestic_signals SET company_id=%s WHERE id=%s", (saved["id"], ident)
         )
         return {"company_id": saved["id"]}
 
@@ -352,7 +352,7 @@ def adopt(ident: int, req: Adopt, user=Depends(workspace_user)):
 @router.post("/signals/{ident}/inquiry")
 def as_inquiry(ident: int, user=Depends(workspace_user)):
     with database() as db:
-        row = describe(one(db, JOINED + " WHERE s.id=?", (ident,)))
+        row = describe(one(db, JOINED + " WHERE s.id=%s", (ident,)))
     if not owned(row):
         raise HTTPException(422, "只有已配置为企业自有作品的评论可转入收件箱。")
     if not row["published"] or len(row["body"]) > 8000:

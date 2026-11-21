@@ -189,7 +189,7 @@ def live_profile(row, source):
 def shortlist(db, source, pool):
     remembered = {}
     for record in db.execute(
-        "SELECT * FROM alternative_buyers WHERE source_company_id=?", (source["id"],)
+        "SELECT * FROM alternative_buyers WHERE source_company_id=%s", (source["id"],)
     ):
         prior = dict(record)
         for alias in keys(json.loads(prior["profile"])) | {prior["identity"]}:
@@ -300,7 +300,7 @@ def card(db, row):
     profile = json.loads(row["profile"])
     saved = (
         db.execute(
-            "SELECT * FROM companies WHERE id=?", (row["company_id"],)
+            "SELECT * FROM companies WHERE id=%s", (row["company_id"],)
         ).fetchone()
         if row["company_id"]
         else None
@@ -310,9 +310,9 @@ def card(db, row):
     owners = []
     if saved:
         owners = [
-            r[0]
+            r["owner"]
             for r in db.execute(
-                """SELECT DISTINCT owner FROM inquiries WHERE company_id=?
+                """SELECT DISTINCT owner FROM inquiries WHERE company_id=%s
             AND owner<>'' AND state<>'已结束' AND merged_into IS NULL ORDER BY owner""",
                 (saved["id"],),
             )
@@ -347,13 +347,13 @@ def card(db, row):
 def batch(db, ident):
     header = db.execute(
         """SELECT b.* FROM alternative_batches b JOIN inquiries i ON i.id=b.inquiry_id
-        WHERE b.inquiry_id=? AND b.source_company_id=i.company_id AND i.merged_into IS NULL""",
+        WHERE b.inquiry_id=%s AND b.source_company_id=i.company_id AND i.merged_into IS NULL""",
         (ident,),
     ).fetchone()
     if not header:
         return None
     rows = db.execute(
-        SELECT + " WHERE i.id=? AND r.decision<>'dismissed' ORDER BY s.position",
+        SELECT + " WHERE i.id=%s AND r.decision<>'dismissed' ORDER BY s.position",
         (ident,),
     )
     return {**dict(header), "items": [card(db, r) for r in rows]}
@@ -362,7 +362,7 @@ def batch(db, ident):
 def context(db, ident, req):
     inquiry = one(
         db,
-        "SELECT company_id,owner FROM inquiries WHERE id=? AND merged_into IS NULL",
+        "SELECT company_id,owner FROM inquiries WHERE id=%s AND merged_into IS NULL",
         (ident,),
     )
     if inquiry["company_id"] != req.source_company_id:
@@ -371,14 +371,14 @@ def context(db, ident, req):
         raise HTTPException(409, "请先分派负责人或选择认领并查找")
     if inquiry["owner"] and inquiry["owner"] not in team(db):
         raise HTTPException(409, "请先将询盘分派给启用的团队成员")
-    source = one(db, "SELECT * FROM companies WHERE id=?", (req.source_company_id,))
+    source = one(db, "SELECT * FROM companies WHERE id=%s", (req.source_company_id,))
     if (
         market_key(source["country"]) in {"", "全部", "all", "待核实"}
         or source["kind"] not in FAMILIES
     ):
         raise HTTPException(422, "请在客户档案补全目标市场和买家业务类型")
     prior = db.execute(
-        "SELECT generated_at FROM alternative_batches WHERE inquiry_id=?", (ident,)
+        "SELECT generated_at FROM alternative_batches WHERE inquiry_id=%s", (ident,)
     ).fetchone()
     snapshot = (
         inquiry["owner"],
@@ -386,7 +386,7 @@ def context(db, ident, req):
         source["country"],
         source["kind"],
         source["website"],
-        prior[0] if prior else "",
+        prior["generated_at"] if prior else "",
     )
     return source, inquiry["owner"], snapshot
 
@@ -422,21 +422,21 @@ def generate(ident: int, req: Search, user=Depends(workspace_user)):
         selected = shortlist(db, source, pool)
         if not owner:
             owner = user["display_name"]
-            db.execute("UPDATE inquiries SET owner=? WHERE id=?", (owner, ident))
+            db.execute("UPDATE inquiries SET owner=%s WHERE id=%s", (owner, ident))
             audit(db, ident, owner, "分配负责人", owner)
-        db.execute("DELETE FROM alternative_batches WHERE inquiry_id=?", (ident,))
+        db.execute("DELETE FROM alternative_batches WHERE inquiry_id=%s", (ident,))
         db.execute(
-            "INSERT INTO alternative_batches VALUES(?,?,?,?,?)",
+            "INSERT INTO alternative_batches VALUES(%s,%s,%s,%s,%s)",
             (ident, source["id"], utc(), req.mode, query),
         )
         for position, (key, profile) in enumerate(selected, 1):
             rid = db.execute(
-                """INSERT INTO alternative_buyers(source_company_id,identity,profile) VALUES(?,?,?)
+                """INSERT INTO alternative_buyers(source_company_id,identity,profile) VALUES(%s,%s,%s)
                 ON CONFLICT(source_company_id,identity) DO UPDATE SET profile=excluded.profile RETURNING id""",
                 (source["id"], key, json.dumps(profile, ensure_ascii=False)),
-            ).fetchone()[0]
+            ).fetchone()["id"]
             db.execute(
-                "INSERT INTO alternative_slots VALUES(?,?,?)", (ident, position, rid)
+                "INSERT INTO alternative_slots VALUES(%s,%s,%s)", (ident, position, rid)
             )
         audit(
             db,
@@ -453,7 +453,7 @@ def mine(user=Depends(workspace_user)):
     with database() as db:
         rows = db.execute(
             SELECT
-            + " WHERE i.owner=? AND r.decision='pending' ORDER BY b.generated_at DESC,s.position",
+            + " WHERE i.owner=%s AND r.decision='pending' ORDER BY b.generated_at DESC,s.position",
             (user["display_name"],),
         )
         seen = set()
@@ -466,7 +466,7 @@ def mine(user=Depends(workspace_user)):
 
 
 def actionable(db, ident, rid, actor):
-    row = db.execute(SELECT + " WHERE i.id=? AND r.id=?", (ident, rid)).fetchone()
+    row = db.execute(SELECT + " WHERE i.id=%s AND r.id=%s", (ident, rid)).fetchone()
     if not row:
         raise HTTPException(409, "该推荐已更新，请刷新后再操作")
     if row["owner"] != actor:
@@ -495,7 +495,7 @@ def feedback(ident: int, rid: int, req: Feedback, user=Depends(workspace_user)):
         if archive == row["source_company_id"]:
             raise HTTPException(409, "候选现已关联原企业，请重新查找")
         db.execute(
-            "UPDATE alternative_buyers SET decision=?,company_id=? WHERE id=?",
+            "UPDATE alternative_buyers SET decision=%s,company_id=%s WHERE id=%s",
             (req.decision, archive, rid),
         )
         audit(
@@ -549,7 +549,7 @@ def record_proof(ident: int, rid: int, req: Proof, user=Depends(workspace_user))
         ):
             return batch(db, ident)
         db.execute(
-            "UPDATE alternative_buyers SET proof_url=?,proof_note=?,proof_actor=?,proof_at=? WHERE id=?",
+            "UPDATE alternative_buyers SET proof_url=%s,proof_note=%s,proof_actor=%s,proof_at=%s WHERE id=%s",
             (req.url, req.note, user["display_name"], utc(), rid),
         )
         audit(
@@ -568,7 +568,7 @@ def withdraw_proof(ident: int, rid: int, user=Depends(workspace_user)):
         row = actionable(db, ident, rid, user["display_name"])
         if row["proof_url"]:
             db.execute(
-                "UPDATE alternative_buyers SET proof_url='',proof_note='',proof_actor='',proof_at='' WHERE id=?",
+                "UPDATE alternative_buyers SET proof_url='',proof_note='',proof_actor='',proof_at='' WHERE id=%s",
                 (rid,),
             )
             audit(
@@ -584,10 +584,10 @@ def withdraw_proof(ident: int, rid: int, user=Depends(workspace_user)):
 def merge_batches(db, source, target):
     # Both inquiries now represent one matter. Keep the newest matching search and all company-pair feedback.
     company = db.execute(
-        "SELECT company_id FROM inquiries WHERE id=?", (target,)
-    ).fetchone()[0]
+        "SELECT company_id FROM inquiries WHERE id=%s", (target,)
+    ).fetchone()["company_id"]
     rows = db.execute(
-        "SELECT * FROM alternative_batches WHERE inquiry_id IN (?,?) ORDER BY generated_at DESC",
+        "SELECT * FROM alternative_batches WHERE inquiry_id IN (%s,%s) ORDER BY generated_at DESC",
         (source, target),
     ).fetchall()
     keep = next(
@@ -596,11 +596,11 @@ def merge_batches(db, source, target):
     for row in rows:
         if row["inquiry_id"] != keep:
             db.execute(
-                "DELETE FROM alternative_batches WHERE inquiry_id=?",
+                "DELETE FROM alternative_batches WHERE inquiry_id=%s",
                 (row["inquiry_id"],),
             )
     if keep == source:
         db.execute(
-            "UPDATE alternative_batches SET inquiry_id=? WHERE inquiry_id=?",
+            "UPDATE alternative_batches SET inquiry_id=%s WHERE inquiry_id=%s",
             (target, source),
         )

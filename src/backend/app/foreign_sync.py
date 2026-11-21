@@ -113,7 +113,7 @@ def synchronize():
             rebuild=True
             db_hash=data_hash(editable_rows(tables))
         if rebuild:
-            from publish_foreign import render
+            from .foreign_excel import render
             render(tables,file_hash)
             file_hash=digest(BOOK.read_bytes())
         conn.execute("""INSERT INTO foreign_catalog.sync_state VALUES (1,%s,%s) ON CONFLICT (id)

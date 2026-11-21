@@ -1,4 +1,4 @@
-import os
+from .storage import model_setting
 import re
 import unicodedata
 
@@ -98,10 +98,10 @@ def local_clues(turns, rows):
     return Clues(**clues)
 
 def extract(turns,rows,use_model):
-    if use_model and os.getenv("LLM_API_KEY"):
+    if use_model and model_setting("LLM_API_KEY"):
         try:
-            model = ChatOpenAI(api_key=os.environ["LLM_API_KEY"],base_url=os.getenv("LLM_BASE_URL"),
-                model=os.getenv("LLM_MODEL","deepseek-flash"),temperature=0,timeout=18,max_retries=0)
+            model = ChatOpenAI(api_key=model_setting("LLM_API_KEY"),base_url=model_setting("LLM_BASE_URL"),
+                model=model_setting("LLM_MODEL","deepseek-flash"),temperature=0,timeout=18,max_retries=0)
             prompt = """Extract current brake part search criteria from the customer in this transcript.
 Sales guesses are unconfirmed. Honor corrections. Omit historical part numbers after axle changes.
 Return a JSON object with only known string keys: number, scheme (wva,bfmc,fmsi,code,supplier_ref,oe_ref,catalog_ref), supplier,

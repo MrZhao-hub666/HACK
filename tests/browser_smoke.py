@@ -1,12 +1,11 @@
-"""Run against an isolated SQLite database and the real Vue UI in Chromium."""
+"""Run against an isolated PostgreSQL schema and the real Vue UI in Chromium."""
 
+from tests.pg_workspace import test_workspace
 import os
 import re
 import socket
-import tempfile
 import threading
 import time
-from pathlib import Path
 
 import uvicorn
 from playwright.sync_api import sync_playwright, expect
@@ -303,9 +302,9 @@ def check_domestic(page):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
+    with test_workspace():
         os.environ.update(
-            DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
+            DEMO_DATA="1", ENABLE_SIMULATOR="1"
         )
         os.environ.pop("LLM_API_KEY", None)
         os.environ.pop("MEDIACRAWLER_URL", None)

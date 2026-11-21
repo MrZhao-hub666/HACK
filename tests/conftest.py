@@ -1,3 +1,4 @@
+from .pg_workspace import test_workspace as pg_workspace
 import pytest
 from fastapi.testclient import TestClient
 
@@ -6,9 +7,14 @@ from src.api.db import database
 from src.api.main import app
 
 
+@pytest.fixture(autouse=True)
+def isolated_database():
+    with pg_workspace():
+        yield
+
+
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+def client(monkeypatch):
     monkeypatch.setenv("DEMO_DATA", "0")
     monkeypatch.setenv("ENABLE_SIMULATOR", "1")
     for key in ("BRAVE_API_KEY", "LLM_API_KEY", "AUTO_ASSIGN"):

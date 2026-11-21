@@ -36,7 +36,7 @@ def test_old_archive_stays_undated_on_upgrade_and_replay(client):
         and old["won_at"] is None
     )
     with database(True) as db:
-        db.execute("UPDATE companies SET saved=0 WHERE id=?", (old["id"],))
+        db.execute("UPDATE companies SET saved=0 WHERE id=%s", (old["id"],))
     assert client.post("/api/companies", json=profile).json()["archived_at"]
 
 

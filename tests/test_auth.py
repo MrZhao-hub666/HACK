@@ -12,8 +12,7 @@ PERSONAL = "Personal-password-for-test"
 
 
 @pytest.fixture
-def browser(tmp_path, monkeypatch):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "auth.db"))
+def browser(monkeypatch):
     monkeypatch.setenv("DEMO_DATA", "0")
     with TestClient(app, headers=HEADERS) as client:
         with database(True) as db:

@@ -20,7 +20,7 @@ ACTIONS = {
 
 def get_inquiry(db, ident):
     return one(
-        db, "SELECT * FROM inquiries WHERE id=? AND merged_into IS NULL", (ident,)
+        db, "SELECT * FROM inquiries WHERE id=%s AND merged_into IS NULL", (ident,)
     )
 
 
@@ -29,12 +29,12 @@ def receive(event, origin, allow_model=True, actor="系统"):
         raise HTTPException(422, "请输入消息或附件说明")
     key = (event.channel, event.account, event.event_id)
     lookup = (
-        "SELECT inquiry_id FROM messages WHERE channel=? AND account=? AND event_id=?"
+        "SELECT inquiry_id FROM messages WHERE channel=%s AND account=%s AND event_id=%s"
     )
     with database() as db:
         prior = db.execute(lookup, key).fetchone()
         if prior:
-            return {"inquiry_id": prior[0], "duplicate": True}
+            return {"inquiry_id": prior["inquiry_id"], "duplicate": True}
     feats = extract(event.body)
     if allow_model:
         feats = enrich(event.body, feats)
@@ -43,19 +43,19 @@ def receive(event, origin, allow_model=True, actor="系统"):
     with database(True) as db:
         prior = db.execute(lookup, key).fetchone()
         if prior:
-            return {"inquiry_id": prior[0], "duplicate": True}
+            return {"inquiry_id": prior["inquiry_id"], "duplicate": True}
         thread = db.execute(
-            "SELECT inquiry_id FROM threads WHERE channel=? AND account=? AND thread_key=?",
+            "SELECT inquiry_id FROM threads WHERE channel=%s AND account=%s AND thread_key=%s",
             thread_key,
         ).fetchone()
         if thread:
-            ident = thread[0]
+            ident = thread["inquiry_id"]
             current = get_inquiry(db, ident)
             if actor != "系统":
                 audit(db, ident, actor, "追加来信", origin)
             if current["state"] in ("已结束", "等客户补充"):
                 db.execute(
-                    "UPDATE inquiries SET state=? WHERE id=?",
+                    "UPDATE inquiries SET state=%s WHERE id=%s",
                     ("跟进中" if current["owner"] else "待处理", ident),
                 )
             if at >= current["last_in"]:
@@ -65,17 +65,17 @@ def receive(event, origin, allow_model=True, actor="系统"):
                     else current["intent"]
                 )
                 db.execute(
-                    "UPDATE inquiries SET last_in=?,intent=? WHERE id=?",
+                    "UPDATE inquiries SET last_in=%s,intent=%s WHERE id=%s",
                     (at, intent, ident),
                 )
             db.execute(
-                "UPDATE inquiries SET created=min(created, ?) WHERE id=?", (at, ident)
+                "UPDATE inquiries SET created=least(created, %s) WHERE id=%s", (at, ident)
             )
         else:
             owner = ""
             if os.getenv("AUTO_ASSIGN", "0") == "1":
                 workload = {
-                    r[0]: r[1]
+                    r["owner"]: r["count"]
                     for r in db.execute(
                         "SELECT owner,count(*) FROM inquiries WHERE state<>'已结束' AND merged_into IS NULL GROUP BY owner"
                     )
@@ -83,7 +83,7 @@ def receive(event, origin, allow_model=True, actor="系统"):
                 owner = min(team(db), key=lambda x: workload.get(x, 0), default="")
             ident = db.execute(
                 "INSERT INTO inquiries(buyer,owner,intent,next_action,created,last_in,state) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
                 (
                     event.sender,
                     owner,
@@ -93,12 +93,12 @@ def receive(event, origin, allow_model=True, actor="系统"):
                     at,
                     "待处理",
                 ),
-            ).lastrowid
-            db.execute("INSERT INTO threads VALUES(?,?,?,?)", (*thread_key, ident))
+            ).fetchone()["id"]
+            db.execute("INSERT INTO threads VALUES(%s,%s,%s,%s)", (*thread_key, ident))
             audit(db, ident, actor, "收到询盘", origin)
         db.execute(
             "INSERT INTO messages(inquiry_id,channel,account,event_id,thread_key,sender,body,at,origin,"
-            "features,attachment) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "features,attachment) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (
                 ident,
                 *key,
@@ -119,7 +119,7 @@ def detail(db, ident):
     messages = [
         dict(r)
         for r in db.execute(
-            "SELECT * FROM messages WHERE inquiry_id=? ORDER BY at,id", (ident,)
+            "SELECT * FROM messages WHERE inquiry_id=%s ORDER BY at,id", (ident,)
         )
     ]
     for m in messages:
@@ -129,7 +129,7 @@ def detail(db, ident):
     item["history"] = [
         dict(r)
         for r in db.execute(
-            "SELECT * FROM history WHERE inquiry_id=? ORDER BY at DESC,id DESC",
+            "SELECT * FROM history WHERE inquiry_id=%s ORDER BY at DESC,id DESC",
             (ident,),
         )
     ]
@@ -149,16 +149,16 @@ def edit(db, ident, patch, actor):
     if "intent" in data and data["intent"] not in INTENTS:
         raise HTTPException(422, "无效意图")
     if data.get("company_id") is not None:
-        one(db, "SELECT id FROM companies WHERE id=?", (data["company_id"],))
+        one(db, "SELECT id FROM companies WHERE id=%s", (data["company_id"],))
     for k, v in data.items():
         if v is None and k != "company_id":
             raise HTTPException(422, "字段不能为空")
         if v != current[k]:
             if k == "company_id":
                 db.execute(
-                    "DELETE FROM alternative_batches WHERE inquiry_id=?", (ident,)
+                    "DELETE FROM alternative_batches WHERE inquiry_id=%s", (ident,)
                 )
-            db.execute(f"UPDATE inquiries SET {k}=? WHERE id=?", (v, ident))
+            db.execute(f"UPDATE inquiries SET {k}=%s WHERE id=%s", (v, ident))
             labels = {
                 "owner": "分配负责人",
                 "state": "变更状态",
@@ -178,18 +178,18 @@ def merge(db, source, target, actor):
         raise HTTPException(409, "两条询盘关联不同企业，请先核实")
     for table in ("messages", "threads", "history"):
         db.execute(
-            f"UPDATE {table} SET inquiry_id=? WHERE inquiry_id=?", (target, source)
+            f"UPDATE {table} SET inquiry_id=%s WHERE inquiry_id=%s", (target, source)
         )
     last_in = max(a["last_in"], b["last_in"])
     replied = max(filter(None, (a["replied"], b["replied"])), default=None)
     state = b["state"]
     pending = db.execute(
-        "SELECT 1 FROM messages WHERE inquiry_id=? AND answered=0 LIMIT 1", (target,)
+        "SELECT 1 FROM messages WHERE inquiry_id=%s AND answered=0 LIMIT 1", (target,)
     ).fetchone()
     if state in ("已结束", "等客户补充") and pending:
         state = "跟进中"
     db.execute(
-        "UPDATE inquiries SET last_in=?,created=?,replied=?,company_id=?,owner=?,state=? WHERE id=?",
+        "UPDATE inquiries SET last_in=%s,created=%s,replied=%s,company_id=%s,owner=%s,state=%s WHERE id=%s",
         (
             last_in,
             min(a["created"], b["created"]),
@@ -201,6 +201,6 @@ def merge(db, source, target, actor):
         ),
     )
     merge_batches(db, source, target)
-    db.execute("UPDATE inquiries SET merged_into=? WHERE id=?", (target, source))
+    db.execute("UPDATE inquiries SET merged_into=%s WHERE id=%s", (target, source))
     audit(db, target, actor, "关联会话", f"并入询盘 #{source}，保留各渠道原文")
     return detail(db, target)

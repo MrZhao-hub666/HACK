@@ -1,8 +1,11 @@
 import os
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from psycopg import sql
+
+from src.backend.app.storage import db as connect_db
 
 HERE = Path(__file__).resolve().parent
 
@@ -15,56 +18,25 @@ def utc(value=None):
     )
 
 
+def sales_schema():
+    return os.getenv("SALES_SCHEMA", "sales")
+
+
 @contextmanager
 def database(write=False):
-    path = Path(os.getenv("DB_PATH", "data/leads.sqlite3"))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=15, isolation_level=None)
-    db.row_factory = sqlite3.Row
-    try:
-        db.execute("PRAGMA foreign_keys=ON")
-        db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
-        yield db
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    schema = sales_schema()
+    with connect_db() as conn:
+        conn.execute(sql.SQL("SET LOCAL search_path TO {}, public").format(sql.Identifier(schema)))
+        if write:
+            # Preserve atomic event deduplication, assignment and account changes across workers.
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(current_database()),hashtext(%s))", (schema,))
+        yield conn
 
 
 def initialize():
-    with database(True) as db:
-        db.commit()
-        db.execute("PRAGMA journal_mode=WAL")
-        db.executescript((HERE / "schema.sql").read_text(encoding="utf8"))
-        db.execute("BEGIN IMMEDIATE")
-        # Evidence check dates on older volumes do not establish when a buyer was archived.
-        company_columns = {c["name"] for c in db.execute("PRAGMA table_info(companies)")}
-        for column in ("archived_at", "won_at", "won_by"):
-            if column not in company_columns:
-                db.execute(f"ALTER TABLE companies ADD COLUMN {column} TEXT")
-        if "contact" not in {
-            c["name"] for c in db.execute("PRAGMA table_info(companies)")
-        }:
-            db.execute(
-                "ALTER TABLE companies ADD COLUMN contact TEXT NOT NULL DEFAULT ''"
-            )
-        if "owner" not in {
-            c["name"] for c in db.execute("PRAGMA table_info(companies)")
-        }:
-            db.execute(
-                "ALTER TABLE companies ADD COLUMN owner TEXT NOT NULL DEFAULT ''"
-            )
-        if "answered" not in {
-            c["name"] for c in db.execute("PRAGMA table_info(messages)")
-        }:
-            db.execute(
-                "ALTER TABLE messages ADD COLUMN answered INTEGER NOT NULL DEFAULT 0"
-            )
-            db.execute(
-                "UPDATE messages SET answered=1 WHERE at<=(SELECT replied FROM inquiries WHERE id=messages.inquiry_id)"
-            )
+    with database(True) as conn:
+        conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(sales_schema())))
+        conn.execute((HERE / "schema.sql").read_text(encoding="utf8"))
 
 
 def one(db, sql, params=()):
@@ -78,6 +50,6 @@ def one(db, sql, params=()):
 
 def audit(db, inquiry, actor, action, detail=""):
     db.execute(
-        "INSERT INTO history(inquiry_id,at,actor,action,detail) VALUES (?,?,?,?,?)",
+        "INSERT INTO history(inquiry_id,at,actor,action,detail) VALUES (%s,%s,%s,%s,%s)",
         (inquiry, utc(), actor, action, detail),
     )

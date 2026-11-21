@@ -58,4 +58,4 @@ def seed():
         row = samples()[0]
         src, checked = row.pop("source"), row.pop("checked")
         save_company(db, row, src, checked)
-        db.execute("INSERT OR IGNORE INTO cursors VALUES ('demo-seeded','1')")
+        db.execute("INSERT INTO cursors VALUES ('demo-seeded','1') ON CONFLICT DO NOTHING")

@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 from psycopg.types.json import Jsonb
@@ -46,12 +46,14 @@ async def lifespan(app):
     await asyncio.to_thread(init_db)
     await asyncio.to_thread(refresh)
     task = asyncio.create_task(watch())
-    yield
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
-app=FastAPI(title="冠英销售选型工作台",lifespan=lifespan)
+router = APIRouter()
 
 @lru_cache(maxsize=2048)
 def photo_digest(path, modified, size):
@@ -129,17 +131,17 @@ def catalog(prefixes=None,compact=False):
 def routing_index(revision):
     return catalog(compact=True)
 
-@app.get("/api/catalog")
+@router.get("/api/catalog")
 def products(country:str|None=None):
     return dict(items=country_candidates(catalog(),country),fields=FIELDS,**status())
 
-@app.get("/api/status")
+@router.get("/api/status")
 def status():
     with db() as conn:
         row = conn.execute("SELECT data_hash FROM catalog_sync WHERE id=1").fetchone()
     return dict(**state,revision=(row["data_hash"] if row else "")+state.get("foreign_revision","")+state.get("domestic_revision",""))
 
-@app.get("/api/domestic-picture/{key}")
+@router.get("/api/domestic-picture/{key}")
 def domestic_picture(key:str):
     with db() as c:
         part=c.execute("SELECT page_key,picture_box FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
@@ -149,27 +151,27 @@ def domestic_picture(key:str):
         im.crop(part["picture_box"]).save(buf,"PNG")
         return Response(buf.getvalue(),media_type="image/png")
 
-@app.get("/api/photo/{path:path}")
+@router.get("/api/photo/{path:path}")
 def photo(path:str):
     target=(PACK/path).resolve()
     if not target.is_relative_to(PACK.resolve()) or not target.is_file() or target.suffix.lower() not in {".jpg",".jpeg",".png"}:
         raise HTTPException(404)
     return FileResponse(target)
 
-@app.get("/api/evidence/{page}")
+@router.get("/api/evidence/{page}")
 def evidence(page:int):
     if page not in (8,13):
         raise HTTPException(404)
     return FileResponse(DOCS/"materials"/f"catalog-{page:02}.jpg")
 
-@app.get("/api/page/{page}")
+@router.get("/api/page/{page}")
 def source_page(page:str):
     if not re.fullmatch(r"(en|cn)-\d{2}",page):raise HTTPException(404)
     image=DOCS/"materials/pages"/(page+".jpg")
     if not image.is_file():raise HTTPException(404)
     return FileResponse(image)
 
-@app.get("/api/observation/{key}")
+@router.get("/api/observation/{key}")
 def source_row(key:str):
     with db() as c:
         row=c.execute("SELECT page_key,bbox,reading->'card_box' AS card FROM catalog_observation WHERE observation_id=%s",(key,)).fetchone()
@@ -186,7 +188,7 @@ class Inquiry(BaseModel):
     market:Literal["国内","外贸"]|None=None
     country:str|None=None
 
-@app.post("/api/match")
+@router.post("/api/match")
 def analyze(req:Inquiry):
     index=routing_index(status()["revision"])
     clues,mode=extract(req.turns,index,req.use_model)
@@ -213,7 +215,7 @@ class DraftSearch(BaseModel):
     workspace: UUID
     inquiries: list[int] = Field(min_length=1)
 
-@app.post("/api/quote-drafts/search")
+@router.post("/api/quote-drafts/search")
 def inquiry_drafts(req: DraftSearch):
     with db() as conn:
         rows = conn.execute("""
@@ -223,60 +225,69 @@ def inquiry_drafts(req: DraftSearch):
         """, (str(req.workspace), [str(i) for i in req.inquiries])).fetchall()
     return [dict(id=row["id"], **row["snapshot"]) for row in rows]
 
-@app.post("/api/quotes")
+@router.post("/api/quotes")
+def standalone_quote(req: Quote):
+    if req.inquiry_id is not None or req.workspace is not None:
+        raise HTTPException(422, "关联询盘的报价请从询盘详情创建")
+    return draft(req)
+
 def draft(req:Quote):
     with db() as conn:
-        key=canonical_id(req.spec_id)
-        workspace = str(req.workspace) if req.workspace else None
-        request = dict(workspace=workspace, inquiry_id=req.inquiry_id, spec_id=key, quantity=req.quantity, unit=req.unit, market=req.market)
-        if req.request_key:
-            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(req.request_key),))
-            saved = conn.execute("SELECT id,snapshot FROM quote_draft WHERE request_key=%s", (req.request_key,)).fetchone()
-            if saved:
-                if saved["snapshot"].get("request") != request:
-                    raise HTTPException(409, "该请求已用于其他报价，请重新选择")
-                return dict(id=saved["id"], **saved["snapshot"])
-        part=None
-        domestic_part=None
-        if re.fullmatch(r"DC[GP]\d{4}",key):
-            domestic_part=conn.execute("SELECT * FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
-            if domestic_part:key=domestic_part["legacy_key"]
-        if re.fullmatch(r"F[EAJCKN][GP]\d{4}",key):
-            table=COUNTRIES[key[1]][1]
-            part=conn.execute(f"""SELECT t.*,s.legacy_key,s.pdf_order FROM foreign_catalog.{table} t
-                JOIN foreign_catalog.source s USING(part_id) WHERE part_id=%s""",(key,)).fetchone()
-            if part:
-                key=part["legacy_key"]
-        row=conn.execute("SELECT * FROM catalog_spec WHERE spec_id=%s",(key,)).fetchone()
-        if not row:
-            raise HTTPException(404,"规格不存在")
+        return save_quote(conn, req)
+
+
+def save_quote(conn, req: Quote):
+    key=canonical_id(req.spec_id)
+    workspace = str(req.workspace) if req.workspace else None
+    request = dict(workspace=workspace, inquiry_id=req.inquiry_id, spec_id=key, quantity=req.quantity, unit=req.unit, market=req.market)
+    if req.request_key:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(req.request_key),))
+        saved = conn.execute("SELECT id,snapshot FROM quote_draft WHERE request_key=%s", (req.request_key,)).fetchone()
+        if saved:
+            if saved["snapshot"].get("request") != request:
+                raise HTTPException(409, "该请求已用于其他报价，请重新选择")
+            return dict(id=saved["id"], **saved["snapshot"])
+    part=None
+    domestic_part=None
+    if re.fullmatch(r"DC[GP]\d{4}",key):
+        domestic_part=conn.execute("SELECT * FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
+        if domestic_part:key=domestic_part["legacy_key"]
+    if re.fullmatch(r"F[EAJCKN][GP]\d{4}",key):
+        table=COUNTRIES[key[1]][1]
+        part=conn.execute(f"""SELECT t.*,s.legacy_key,s.pdf_order FROM foreign_catalog.{table} t
+            JOIN foreign_catalog.source s USING(part_id) WHERE part_id=%s""",(key,)).fetchone()
         if part:
-            row.update(sales_fields(part))
-        if domestic_part:
-            row.update(domestic.sales_fields(domestic_part))
-        if req.market and row["market"]!=req.market:
-            raise HTTPException(409,"目录市场已变动，请重新选择对应规格")
-        required=("sku","material","price","currency","sale_unit","price_source","valid_until")
-        missing=[FIELDS[k] for k in required if not row[k]]
-        if row["sale_unit"] and req.unit!=row["sale_unit"]:
-            missing.append("计价单位不一致")
-        if row["valid_until"] and date.fromisoformat(row["valid_until"]) < date.today():
-            missing.append("价目已过期")
-        if row["status"]!="目录记录" and row["status"]!="企业已核":
-            missing.append("产品关系待核")
-        total=None if missing else str(Decimal(row["price"])*req.quantity)
-        snapshot=dict(spec_id=row["spec_id"],code=row["code"],name=row["name"],sku=row["sku"],
-            market=row["market"],source_pages=row["page_refs"],size=row["size_raw"],
-            material=row["material"],quantity=req.quantity,unit=req.unit,unit_price=row["price"],total=total,
-            currency=row["currency"],source=row["price_source"],valid_until=row["valid_until"],
-            status="待核价" if missing else "报价草稿",missing=missing)
-        if domestic_part:
-            snapshot["thickness"]=domestic_part["thickness"]
-        if req.inquiry_id:
-            snapshot["inquiry_id"] = req.inquiry_id
-            snapshot["workspace"] = workspace
-        if req.request_key:
-            snapshot["request"] = request
-        ref=conn.execute("INSERT INTO quote_draft(snapshot,request_key) VALUES (%s,%s) RETURNING id",(Jsonb(snapshot),req.request_key)).fetchone()
-        return dict(id=ref["id"],**snapshot)
+            key=part["legacy_key"]
+    row=conn.execute("SELECT * FROM catalog_spec WHERE spec_id=%s",(key,)).fetchone()
+    if not row:
+        raise HTTPException(404,"规格不存在")
+    if part:
+        row.update(sales_fields(part))
+    if domestic_part:
+        row.update(domestic.sales_fields(domestic_part))
+    if req.market and row["market"]!=req.market:
+        raise HTTPException(409,"目录市场已变动，请重新选择对应规格")
+    required=("sku","material","price","currency","sale_unit","price_source","valid_until")
+    missing=[FIELDS[k] for k in required if not row[k]]
+    if row["sale_unit"] and req.unit!=row["sale_unit"]:
+        missing.append("计价单位不一致")
+    if row["valid_until"] and date.fromisoformat(row["valid_until"]) < date.today():
+        missing.append("价目已过期")
+    if row["status"]!="目录记录" and row["status"]!="企业已核":
+        missing.append("产品关系待核")
+    total=None if missing else str(Decimal(row["price"])*req.quantity)
+    snapshot=dict(spec_id=row["spec_id"],code=row["code"],name=row["name"],sku=row["sku"],
+        market=row["market"],source_pages=row["page_refs"],size=row["size_raw"],
+        material=row["material"],quantity=req.quantity,unit=req.unit,unit_price=row["price"],total=total,
+        currency=row["currency"],source=row["price_source"],valid_until=row["valid_until"],
+        status="待核价" if missing else "报价草稿",missing=missing)
+    if domestic_part:
+        snapshot["thickness"]=domestic_part["thickness"]
+    if req.inquiry_id:
+        snapshot["inquiry_id"] = req.inquiry_id
+        snapshot["workspace"] = workspace
+    if req.request_key:
+        snapshot["request"] = request
+    ref=conn.execute("INSERT INTO quote_draft(snapshot,request_key) VALUES (%s,%s) RETURNING id",(Jsonb(snapshot),req.request_key)).fetchone()
+    return dict(id=ref["id"],**snapshot)
 

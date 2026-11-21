@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import re
 import secrets
-import sqlite3
+from psycopg.errors import UniqueViolation
 import sys
 
 from fastapi import HTTPException
@@ -53,17 +53,17 @@ def create_account(db, username, display_name, role, encoded, must_change=True):
     try:
         row = db.execute(
             f"""INSERT INTO users(username,display_name,role,password_hash,must_change)
-                VALUES(?,?,?,?,?) RETURNING {PUBLIC_FIELDS}""",
+                VALUES(%s,%s,%s,%s,%s) RETURNING {PUBLIC_FIELDS}""",
             (username, name, role, encoded, int(must_change)),
         ).fetchone()
-    except sqlite3.IntegrityError as exc:
+    except UniqueViolation as exc:
         raise HTTPException(409, "账号或成员姓名已被使用") from exc
     return public_user(row)
 
 
 def team(db):
     return [
-        row[0]
+        row["display_name"]
         for row in db.execute(
             "SELECT display_name FROM users WHERE active=1 ORDER BY id"
         )
@@ -91,15 +91,15 @@ def main():
                 create_account(db, args.username, args.name, "admin", encoded)
             else:
                 row = db.execute(
-                    """UPDATE users SET password_hash=?,active=1,must_change=1
-                    WHERE username=? AND role='admin' RETURNING id""",
+                    """UPDATE users SET password_hash=%s,active=1,must_change=1
+                    WHERE username=%s AND role='admin' RETURNING id""",
                     (encoded, args.username.strip().lower()),
                 ).fetchone()
                 if not row:
                     raise HTTPException(404, "管理员账号不存在")
-                db.execute("DELETE FROM sessions WHERE user_id=?", (row["id"],))
+                db.execute("DELETE FROM sessions WHERE user_id=%s", (row["id"],))
                 db.execute(
-                    "DELETE FROM login_limits WHERE bucket IN (?,?)",
+                    "DELETE FROM login_limits WHERE bucket IN (%s,%s)",
                     (
                         "user:" + args.username.strip().lower(),
                         "change:" + str(row["id"]),

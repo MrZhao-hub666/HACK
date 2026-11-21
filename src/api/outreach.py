@@ -166,13 +166,13 @@ def is_social_post(url):
     return domain in patterns and re.search(patterns[domain], parts.path) is not None
 
 
-def record(db, item):
+def insert_signal(db, item):
     if item.source in ("广交会", "上海法兰克福") and not item.edition:
         raise HTTPException(422, "登记展会线索时请填写已核对的届次")
     key = identity(item)
-    db.execute(
+    inserted = db.execute(
         """INSERT INTO outreach_evidence
-        (identity,source,edition,title,market,url,snippet,author,published,quote,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        (identity,source,edition,title,market,url,snippet,author,published,quote,updated) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT(identity) DO NOTHING""",
         (
             key,
@@ -188,7 +188,12 @@ def record(db, item):
             utc(),
         ),
     )
-    return one(db, "SELECT * FROM outreach_evidence WHERE identity=?", (key,))
+    return key, inserted.rowcount
+
+
+def record(db, item):
+    key, _ = insert_signal(db, item)
+    return one(db, "SELECT * FROM outreach_evidence WHERE identity=%s", (key,))
 
 
 @router.post("/search")
@@ -233,7 +238,7 @@ def search(req: Search):
         with database() as db:
             for row in db.execute(
                 """SELECT source,edition,title,market,url,snippet FROM outreach_evidence
-                                     WHERE source=? ORDER BY id DESC""",
+                                     WHERE source=%s ORDER BY id DESC""",
                 (req.source,),
             ):
                 items.append(Signal(**dict(row)))
@@ -329,10 +334,7 @@ def import_fair(req: FairImport):
     if not items:
         raise HTTPException(422, "CSV 没有数据行")
     with database(True) as db:
-        before = db.total_changes
-        for item in items:
-            record(db, item)
-        added = db.total_changes - before
+        added = sum(insert_signal(db, item)[1] for item in items)
     return {"added": added, "duplicates": len(items) - added}
 
 
@@ -419,7 +421,7 @@ def assess(req: Excerpt):
 @router.put("/evidence/{ident}")
 def review(ident: int, req: Review, user=Depends(workspace_user)):
     with database(True) as db:
-        item = one(db, "SELECT * FROM outreach_evidence WHERE id=?", (ident,))
+        item = one(db, "SELECT * FROM outreach_evidence WHERE id=%s", (ident,))
         if req.version != item["updated"]:
             raise HTTPException(409, "记录已更新，请重新打开核实记录")
         company_id = req.company_id
@@ -428,7 +430,7 @@ def review(ident: int, req: Review, user=Depends(workspace_user)):
                 raise HTTPException(422, "请摘录原文；社媒原帖还需填写发布方")
             if company_id:
                 one(
-                    db, "SELECT id FROM companies WHERE id=? AND saved=1", (company_id,)
+                    db, "SELECT id FROM companies WHERE id=%s AND saved=1", (company_id,)
                 )
             elif req.name or item["source"] != "社媒原帖":
                 if not req.name or not req.market:
@@ -446,8 +448,8 @@ def review(ident: int, req: Review, user=Depends(workspace_user)):
         else:
             company_id = None
         db.execute(
-            """UPDATE outreach_evidence SET company_id=?,verdict=?,author=?,published=?,quote=?,
-                      intent=?,fit=?,reason=?,reviewer=?,updated=? WHERE id=?""",
+            """UPDATE outreach_evidence SET company_id=%s,verdict=%s,author=%s,published=%s,quote=%s,
+                      intent=%s,fit=%s,reason=%s,reviewer=%s,updated=%s WHERE id=%s""",
             (
                 company_id,
                 req.verdict,
@@ -462,7 +464,7 @@ def review(ident: int, req: Review, user=Depends(workspace_user)):
                 ident,
             ),
         )
-        return one(db, "SELECT * FROM outreach_evidence WHERE id=?", (ident,))
+        return one(db, "SELECT * FROM outreach_evidence WHERE id=%s", (ident,))
 
 
 class Contact(Input):
@@ -526,7 +528,7 @@ def contact_sources(ident: int, live: bool = False):
     with database() as db:
         buyer = one(
             db,
-            "SELECT name,website,country FROM companies WHERE id=? AND saved=1",
+            "SELECT name,website,country FROM companies WHERE id=%s AND saved=1",
             (ident,),
         )
     if live:
@@ -548,7 +550,7 @@ def contact_sources(ident: int, live: bool = False):
 def remove_contact(ident: int, contact_id: int):
     with database(True) as db:
         db.execute(
-            "DELETE FROM outreach_contacts WHERE id=? AND company_id=?",
+            "DELETE FROM outreach_contacts WHERE id=%s AND company_id=%s",
             (contact_id, ident),
         )
     return {"ok": True}
@@ -565,10 +567,10 @@ def save_contact(ident: int, req: Contact, user=Depends(workspace_user)):
     if req.kind in ("Facebook", "供应商入口"):
         prospects.valid_url(value)
     with database(True) as db:
-        one(db, "SELECT id FROM companies WHERE id=? AND saved=1", (ident,))
+        one(db, "SELECT id FROM companies WHERE id=%s AND saved=1", (ident,))
         db.execute(
             """INSERT INTO outreach_contacts(company_id,kind,value,holder,url,reviewer,updated)
-                      VALUES (?,?,?,?,?,?,?) ON CONFLICT(company_id,kind,value) DO UPDATE SET
+                      VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(company_id,kind,value) DO UPDATE SET
                       holder=excluded.holder,url=excluded.url,reviewer=excluded.reviewer,updated=excluded.updated""",
             (ident, req.kind, value, req.holder, req.url, user["display_name"], utc()),
         )
@@ -653,12 +655,12 @@ def draft(ident: int, req: Invitation, user=Depends(workspace_user)):
     if req.ends < req.starts:
         raise HTTPException(422, "结束日期必须在开始日期当天或之后")
     with database(True) as db:
-        buyer = one(db, "SELECT name FROM companies WHERE id=? AND saved=1", (ident,))
+        buyer = one(db, "SELECT name FROM companies WHERE id=%s AND saved=1", (ident,))
         recipient = ""
         if req.contact_id:
             recipient = one(
                 db,
-                """SELECT value FROM outreach_contacts WHERE id=? AND company_id=?
+                """SELECT value FROM outreach_contacts WHERE id=%s AND company_id=%s
                                  AND kind IN ('采购邮箱','企业邮箱')""",
                 (req.contact_id, ident),
             )["value"]
@@ -676,12 +678,12 @@ def draft(ident: int, req: Invitation, user=Depends(workspace_user)):
         key = (ident, req.event, str(req.starts), str(req.ends), req.booth)
         db.execute(
             """INSERT INTO outreach_drafts(company_id,event,starts,ends,booth,recipient,subject,body,actor,updated)
-                     VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(company_id,event,starts,ends,booth) DO NOTHING""",
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(company_id,event,starts,ends,booth) DO NOTHING""",
             (*key, recipient, subject, body, user["display_name"], utc()),
         )
         return one(
             db,
-            "SELECT * FROM outreach_drafts WHERE company_id=? AND event=? AND starts=? AND ends=? AND booth=?",
+            "SELECT * FROM outreach_drafts WHERE company_id=%s AND event=%s AND starts=%s AND ends=%s AND booth=%s",
             key,
         )
 
@@ -696,19 +698,19 @@ class DraftEdit(Input):
 @router.put("/drafts/{ident}")
 def edit_draft(ident: int, req: DraftEdit, user=Depends(workspace_user)):
     with database(True) as db:
-        old = one(db, "SELECT * FROM outreach_drafts WHERE id=?", (ident,))
+        old = one(db, "SELECT * FROM outreach_drafts WHERE id=%s", (ident,))
         if req.version != old["updated"]:
             raise HTTPException(409, "草稿已被更新，请重新读取后编辑")
         recipient = ""
         if req.contact_id:
             recipient = one(
                 db,
-                """SELECT value FROM outreach_contacts WHERE id=? AND company_id=?
+                """SELECT value FROM outreach_contacts WHERE id=%s AND company_id=%s
                                  AND kind IN ('采购邮箱','企业邮箱')""",
                 (req.contact_id, old["company_id"]),
             )["value"]
         db.execute(
-            "UPDATE outreach_drafts SET recipient=?,subject=?,body=?,actor=?,updated=? WHERE id=?",
+            "UPDATE outreach_drafts SET recipient=%s,subject=%s,body=%s,actor=%s,updated=%s WHERE id=%s",
             (recipient, req.subject, req.body, user["display_name"], utc(), ident),
         )
-        return one(db, "SELECT * FROM outreach_drafts WHERE id=?", (ident,))
+        return one(db, "SELECT * FROM outreach_drafts WHERE id=%s", (ident,))

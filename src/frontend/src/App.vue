@@ -11,7 +11,8 @@ const countries={'E':'欧洲','A':'美国','J':'日本','C':'中国','K':'韩国
 function matchesCountry(row,code){return !code || row.country_code===code || row.country_code==='N'}
 const quantity=ref(100), unit=ref('套'), timer=ref(null)
 async function api(path,data) {
-  const response=await fetch('/api/'+path,data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{})
+  const response=await fetch('/api/'+path,data?{method:'POST',headers:{'Content-Type':'application/json','X-Workspace-Request':'1'},body:JSON.stringify(data)}:{})
+  if(response.status===401) throw Error('请先在 5174 销售工作台登录，然后刷新本页。')
   if(!response.ok) throw Error('请求失败 '+response.status)
   return response.json()
 }
@@ -22,7 +23,7 @@ async function reload() {
     revision.value=r.revision
     if(!selected.value) selected.value=r.items.find(x=>x.code==='GYS-067')?.spec_id??r.items[0]?.spec_id
     failure.value=''
-  } catch {failure.value='无法连接后台，请启动后端和数据库。'}
+  } catch (e) {failure.value=e.message}
 }
 onMounted(()=>{reload();timer.value=setInterval(async()=>{
   try{const s=await api('status');sync.value=s.sync;if(!busy.value&&revision.value!==s.revision)await reload()}

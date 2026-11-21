@@ -1,5 +1,5 @@
 import os
-import sqlite3
+from psycopg.errors import UniqueViolation
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,14 +23,16 @@ from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
 from .outreach import router as outreach_router
 from .prospects import discover, host, save_company, valid_url
 from .seed import seed
+from src.backend.app import main as catalogue
 from .selection import router as selection_router
 
 
 @asynccontextmanager
 async def lifespan(app):
-    initialize()
-    seed()
-    yield
+    async with catalogue.lifespan(app):
+        initialize()
+        seed()
+        yield
 
 
 app = FastAPI(title="冠英 · 海外销售工作台", version="1.0.0", lifespan=lifespan)
@@ -136,7 +138,7 @@ def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
         valid_url(data[key])
     data["domain"] = host(data["website"])
     with database(True) as db:
-        previous = one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+        previous = one(db, "SELECT * FROM companies WHERE id=%s", (ident,))
         if req.confirmed_deal is not None and req.confirmed_deal != bool(previous["won_at"]):
             data["won_at"] = utc() if req.confirmed_deal else None
             data["won_by"] = user["display_name"] if req.confirmed_deal else None
@@ -149,19 +151,19 @@ def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
         try:
             db.execute(
                 "UPDATE companies SET reviewed=1,"
-                + ",".join(f"{k}=?" for k in data)
-                + " WHERE id=?",
+                + ",".join(f"{k}=%s" for k in data)
+                + " WHERE id=%s",
                 [*data.values(), ident],
             )
-        except sqlite3.IntegrityError as exc:
+        except UniqueViolation as exc:
             raise HTTPException(409, "该官网已关联其他买家") from exc
         if any(
             previous[key] != data[key] for key in ("name", "kind", "country", "website")
         ):
             db.execute(
-                "DELETE FROM alternative_batches WHERE source_company_id=?", (ident,)
+                "DELETE FROM alternative_batches WHERE source_company_id=%s", (ident,)
             )
-        return one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+        return one(db, "SELECT * FROM companies WHERE id=%s", (ident,))
 
 
 @business.post("/api/demo/inquiries")
@@ -199,9 +201,9 @@ def inquiries():
                 """
         SELECT i.*, c.name AS company,
           EXISTS(SELECT 1 FROM messages u WHERE u.inquiry_id=i.id AND u.answered=0) AS unanswered,
-          EXISTS(SELECT 1 FROM messages n WHERE n.inquiry_id=i.id AND n.at>=? AND n.at<?
+          EXISTS(SELECT 1 FROM messages n WHERE n.inquiry_id=i.id AND n.at>=%s AND n.at<%s
                  AND n.answered=0) AS night_unanswered,
-          (SELECT group_concat(DISTINCT ch.channel) FROM messages ch WHERE ch.inquiry_id=i.id) AS all_channels,
+          (SELECT string_agg(DISTINCT ch.channel, ',' ORDER BY ch.channel) FROM messages ch WHERE ch.inquiry_id=i.id) AS all_channels,
           m.channel,coalesce(nullif(m.body,''),m.attachment) AS preview,m.origin,m.features,
           (SELECT count(*) FROM messages WHERE inquiry_id=i.id) AS message_count
         FROM inquiries i LEFT JOIN companies c ON c.id=i.company_id
@@ -237,13 +239,13 @@ def reply(ident: int, req: Reply, user=Depends(workspace_user)):
     with database(True) as db:
         item = get_inquiry(db, ident)
         latest = db.execute(
-            "SELECT max(id) FROM messages WHERE inquiry_id=?", (ident,)
-        ).fetchone()[0]
+            "SELECT max(id) FROM messages WHERE inquiry_id=%s", (ident,)
+        ).fetchone()["max"]
         if req.through_message_id is not None and latest != req.through_message_id:
             raise HTTPException(409, "有新来信，请核对最新消息后再登记回复")
-        db.execute("UPDATE messages SET answered=1 WHERE inquiry_id=?", (ident,))
+        db.execute("UPDATE messages SET answered=1 WHERE inquiry_id=%s", (ident,))
         db.execute(
-            "UPDATE inquiries SET replied=?,owner=?,state='等客户补充' WHERE id=?",
+            "UPDATE inquiries SET replied=%s,owner=%s,state='等客户补充' WHERE id=%s",
             (utc(), item["owner"] or user["display_name"], ident),
         )
         audit(db, ident, user["display_name"], "登记人工回复", req.text)
@@ -260,6 +262,7 @@ business.include_router(alternatives_router)
 business.include_router(outreach_router)
 business.include_router(domestic_router)
 business.include_router(selection_router)
+business.include_router(catalogue.router)
 app.include_router(business)
 
 web = Path(__file__).resolve().parent.parent / "web" / "dist"

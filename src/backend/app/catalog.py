@@ -1,19 +1,13 @@
 """Column order is shared by PostgreSQL, the API and the editable workbook."""
-import os
 import re
 from pathlib import Path
 
-from dotenv import load_dotenv
-from psycopg import connect
-from psycopg.rows import dict_row
+from .storage import db
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCS = ROOT / "docs"
 PACK = ROOT / "鼓式刹车片照片等8个文件"
 BOOK = DOCS / "冠英产品知识库.xlsx"
-load_dotenv(ROOT / "src/backend/.env.local")
-load_dotenv(ROOT / ".env")
-
 FIELDS = {
     "code": "冠英编号", "series": "系列", "name": "型号名称", "spec_id": "规格唯一键",
     "kind": "产品类型", "wva": "WVA", "bfmc": "BFMC", "fmsi": "FMSI",
@@ -35,11 +29,6 @@ FIELDS.update(EXTRA_FIELDS)
 MEDIA = {"spec_id": "关联规格键", "path": "资料包相对路径", "label": "图片说明"}
 SHEETS = {"产品规格": ("catalog_spec", FIELDS), "图片索引": ("catalog_media", MEDIA)}
 
-def db():
-    return connect(os.getenv("DATABASE_URL") or
-                   f"postgresql://catalog:{os.getenv('POSTGRES_PASSWORD','catalog_local')}@127.0.0.1:{os.getenv('PG_PORT','55432')}/catalog",
-                   row_factory=dict_row, connect_timeout=5)
-
 def natural(value):
     return [int(x) if i % 2 else x.casefold() for i, x in enumerate(re.split(r"(\d+)", value or ""))]
 
@@ -50,6 +39,7 @@ def order_specs(rows):
 
 def init_db():
     with db() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(400710)")
         columns = ", ".join(f"{k} text" for k in FIELDS if k not in {"spec_id","code"})
         conn.execute("CREATE TABLE IF NOT EXISTS catalog_product (code text PRIMARY KEY)")
         conn.execute(f"""CREATE TABLE IF NOT EXISTS catalog_spec (

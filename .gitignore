@@ -22,3 +22,5 @@ src/web/dist/
 /docs/UI/
 /docs/*.xlsx
 /docs/*.docx
+
+/backups/

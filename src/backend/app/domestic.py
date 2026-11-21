@@ -102,7 +102,7 @@ def read_rows(c,prefixes=None):
     return c.execute("SELECT * FROM domestic_catalog.parts WHERE left(part_id,3)=ANY(%s) ORDER BY part_id",(prefixes,)).fetchall()
 
 def export(rows, file_hash):
-    from publish_foreign import export_book
+    from .foreign_excel import export_book
     sheets=[]
     for prefix,group in groupby(rows,key=lambda r:r["part_id"][:3]):
         data=[]; images=[]

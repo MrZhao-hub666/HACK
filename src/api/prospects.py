@@ -222,12 +222,12 @@ def matching_company(db, data):
     domain = host(data["website"])
     if domain:
         row = db.execute(
-            "SELECT * FROM companies WHERE domain=? AND domain<>''", (domain,)
+            "SELECT * FROM companies WHERE domain=%s AND domain<>''", (domain,)
         ).fetchone()
         if row:
             return row
     for row in db.execute(
-        "SELECT * FROM companies WHERE lower(name)=lower(?) ORDER BY id",
+        "SELECT * FROM companies WHERE lower(name)=lower(%s) ORDER BY id",
         (data["name"],),
     ):
         if market_key(row["country"]) == market_key(data["country"]):
@@ -242,10 +242,10 @@ def save_company(db, data, source, checked=None, owner=""):
     existing = matching_company(db, data)
     if existing:
         db.execute(
-            "UPDATE companies SET saved=1,archived_at=coalesce(archived_at,?) WHERE id=? AND saved=0",
+            "UPDATE companies SET saved=1,archived_at=coalesce(archived_at,%s) WHERE id=%s AND saved=0",
             (utc(), existing["id"]),
         )
-        return one(db, "SELECT * FROM companies WHERE id=?", (existing["id"],))
+        return one(db, "SELECT * FROM companies WHERE id=%s", (existing["id"],))
     row = {
         **data,
         "domain": domain,
@@ -257,7 +257,7 @@ def save_company(db, data, source, checked=None, owner=""):
     }
     cols = list(row)
     ident = db.execute(
-        f"INSERT INTO companies({','.join(cols)}) VALUES({','.join('?' for _ in cols)})",
+        f"INSERT INTO companies({','.join(cols)}) VALUES({','.join('%s' for _ in cols)}) RETURNING id",
         [row[k] for k in cols],
-    ).lastrowid
-    return one(db, "SELECT * FROM companies WHERE id=?", (ident,))
+    ).fetchone()["id"]
+    return one(db, "SELECT * FROM companies WHERE id=%s", (ident,))

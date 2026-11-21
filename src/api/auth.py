@@ -3,7 +3,6 @@ import os
 import secrets
 import time
 from contextlib import contextmanager
-from sqlite3 import Row
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -69,7 +68,7 @@ def token_key(request):
 def read_session(db, request: Request):
     row = db.execute(
         """SELECT u.*, s.expires_at, s.remember FROM sessions s JOIN users u
-        ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1""",
+        ON u.id=s.user_id WHERE s.token_hash=%s AND s.expires_at>%s AND u.active=1""",
         (token_key(request), int(time.time())),
     ).fetchone()
     if row is None:
@@ -102,9 +101,9 @@ def issue(db, response, user, remember):
     now = int(time.time())
     ttl = (14 * 24 if remember else 8) * 3600
     token = secrets.token_urlsafe(32)
-    db.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
+    db.execute("DELETE FROM sessions WHERE expires_at<=%s", (now,))
     db.execute(
-        "INSERT INTO sessions(token_hash,user_id,expires_at,remember) VALUES(?,?,?,?)",
+        "INSERT INTO sessions(token_hash,user_id,expires_at,remember) VALUES(%s,%s,%s,%s)",
         (
             hashlib.sha256(token.encode()).hexdigest(),
             user["id"],
@@ -127,17 +126,17 @@ def issue(db, response, user, remember):
 def reserve_attempt(keys):
     now = int(time.time())
     with database(True) as db:
-        db.execute("DELETE FROM login_limits WHERE until<=?", (now,))
+        db.execute("DELETE FROM login_limits WHERE until<=%s", (now,))
         for key, limit in keys:
             row = db.execute(
-                "SELECT hits FROM login_limits WHERE bucket=?", (key,)
+                "SELECT hits FROM login_limits WHERE bucket=%s", (key,)
             ).fetchone()
-            if row and row[0] >= limit:
+            if row and row["hits"] >= limit:
                 raise HTTPException(429, "尝试次数过多，请稍后再试")
         for key, _ in keys:
             db.execute(
-                """INSERT INTO login_limits VALUES(?,1,?) ON CONFLICT(bucket)
-                        DO UPDATE SET hits=hits+1""",
+                """INSERT INTO login_limits VALUES(%s,1,%s) ON CONFLICT(bucket)
+                        DO UPDATE SET hits=login_limits.hits+1""",
                 (key, now + 600),
             )
 
@@ -149,7 +148,7 @@ def login(form: Login, request: Request, response: Response):
     peer_key = "peer:" + (request.client.host if request.client else "local")
     reserve_attempt([(account_key, 10), (peer_key, 100)])
     with database() as db:
-        row = db.execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
+        row = db.execute("SELECT * FROM users WHERE username=%s", (name,)).fetchone()
     encoded = row["password_hash"] if row and row["active"] else DUMMY_HASH
     if (
         not verify_password(form.password.get_secret_value(), encoded)
@@ -159,16 +158,16 @@ def login(form: Login, request: Request, response: Response):
         raise HTTPException(401, "账号或密码不正确")
     with database(True) as db:
         user = db.execute(
-            "SELECT * FROM users WHERE id=? AND active=1 AND password_hash=?",
+            "SELECT * FROM users WHERE id=%s AND active=1 AND password_hash=%s",
             (row["id"], encoded),
         ).fetchone()
         if not user:
             raise HTTPException(401, "账号或密码不正确")
-        db.execute("DELETE FROM login_limits WHERE bucket=?", (account_key,))
+        db.execute("DELETE FROM login_limits WHERE bucket=%s", (account_key,))
         db.execute(
-            "UPDATE login_limits SET hits=max(0,hits-1) WHERE bucket=?", (peer_key,)
+            "UPDATE login_limits SET hits=greatest(0,hits-1) WHERE bucket=%s", (peer_key,)
         )
-        db.execute("DELETE FROM sessions WHERE token_hash=?", (token_key(request),))
+        db.execute("DELETE FROM sessions WHERE token_hash=%s", (token_key(request),))
         return issue(db, response, user, form.remember)
 
 
@@ -180,7 +179,7 @@ def me(user=Depends(session_user)):
 @router.post("/logout", status_code=204)
 def logout(request: Request, response: Response):
     with database(True) as db:
-        db.execute("DELETE FROM sessions WHERE token_hash=?", (token_key(request),))
+        db.execute("DELETE FROM sessions WHERE token_hash=%s", (token_key(request),))
     response.delete_cookie(
         COOKIE,
         path="/",
@@ -210,9 +209,9 @@ def change_password(
     encoded = encode_password(new)
     with database(True) as db:
         changed = db.execute(
-            f"""UPDATE users SET password_hash=?,must_change=0
-            WHERE id=? AND active=1 AND password_hash=? AND EXISTS
-            (SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>?) RETURNING {PUBLIC_FIELDS}""",
+            f"""UPDATE users SET password_hash=%s,must_change=0
+            WHERE id=%s AND active=1 AND password_hash=%s AND EXISTS
+            (SELECT 1 FROM sessions WHERE token_hash=%s AND expires_at>%s) RETURNING {PUBLIC_FIELDS}""",
             (
                 encoded,
                 user["id"],
@@ -223,15 +222,15 @@ def change_password(
         ).fetchone()
         if not changed:
             raise HTTPException(401, "登录状态已变更，请重新登录")
-        db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+        db.execute("DELETE FROM sessions WHERE user_id=%s", (user["id"],))
         db.execute(
-            "DELETE FROM login_limits WHERE bucket IN (?,?)",
+            "DELETE FROM login_limits WHERE bucket IN (%s,%s)",
             (bucket, "user:" + user["username"]),
         )
         return issue(db, response, changed, user["remember"])
 
 
-Admin = Annotated[Row, Depends(administrator)]
+Admin = Annotated[dict, Depends(administrator)]
 
 
 @contextmanager
@@ -266,16 +265,16 @@ def set_status(ident: int, form: Status, admin: Admin, request: Request):
         if (
             not form.active
             and db.execute(
-                "SELECT count(*) FROM users WHERE active=1 AND role='admin' AND id<>?",
+                "SELECT count(*) FROM users WHERE active=1 AND role='admin' AND id<>%s",
                 (ident,),
-            ).fetchone()[0]
+            ).fetchone()["count"]
             == 0
         ):
             raise HTTPException(409, "工作台至少需要一位启用的管理员")
-        one(db, "SELECT id FROM users WHERE id=?", (ident,))
-        db.execute("UPDATE users SET active=? WHERE id=?", (int(form.active), ident))
+        one(db, "SELECT id FROM users WHERE id=%s", (ident,))
+        db.execute("UPDATE users SET active=%s WHERE id=%s", (int(form.active), ident))
         if not form.active:
-            db.execute("DELETE FROM sessions WHERE user_id=?", (ident,))
+            db.execute("DELETE FROM sessions WHERE user_id=%s", (ident,))
     return {"active": form.active}
 
 
@@ -285,13 +284,13 @@ def reset_password(ident: int, form: Password, admin: Admin, request: Request):
         raise HTTPException(409, "请在我的账号中修改密码")
     encoded = encode_password(form.password.get_secret_value())
     with admin_write(request) as db:
-        member = one(db, "SELECT username FROM users WHERE id=?", (ident,))
+        member = one(db, "SELECT username FROM users WHERE id=%s", (ident,))
         db.execute(
-            "UPDATE users SET password_hash=?,must_change=1 WHERE id=?",
+            "UPDATE users SET password_hash=%s,must_change=1 WHERE id=%s",
             (encoded, ident),
         )
-        db.execute("DELETE FROM sessions WHERE user_id=?", (ident,))
+        db.execute("DELETE FROM sessions WHERE user_id=%s", (ident,))
         db.execute(
-            "DELETE FROM login_limits WHERE bucket IN (?,?)",
+            "DELETE FROM login_limits WHERE bucket IN (%s,%s)",
             ("user:" + member["username"], "change:" + str(ident)),
         )

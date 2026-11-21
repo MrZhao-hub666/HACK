@@ -27,6 +27,7 @@ def main():
         ["docker", "compose", "config", "--quiet"],
     ]
     if args.docker:
+        commands.insert(0, ["docker", "compose", "up", "-d", "--wait", "db"])
         commands.append(["docker", "compose", "up", "-d", "--build", "--wait"])
     for cmd in commands:
         print(">", " ".join(cmd), flush=True)
