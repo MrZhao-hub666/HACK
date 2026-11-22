@@ -7,6 +7,7 @@ from .storage import db
 ROOT = Path(__file__).resolve().parents[3]
 DOCS = ROOT / "docs"
 PACK = ROOT / "鼓式刹车片照片等8个文件"
+CATALOG_PHOTOS = DOCS / "materials/photos"
 BOOK = DOCS / "冠英产品知识库.xlsx"
 FIELDS = {
     "code": "冠英编号", "series": "系列", "name": "型号名称", "spec_id": "规格唯一键",
@@ -28,6 +29,21 @@ EXTRA_FIELDS = {
 FIELDS.update(EXTRA_FIELDS)
 MEDIA = {"spec_id": "关联规格键", "path": "资料包相对路径", "label": "图片说明"}
 SHEETS = {"产品规格": ("catalog_spec", FIELDS), "图片索引": ("catalog_media", MEDIA)}
+
+def photo_roots():
+    return tuple(directory.resolve() for directory in (PACK, CATALOG_PHOTOS) if directory.is_dir())
+
+def photo_path(relative_path, roots=None):
+    relative = Path(relative_path)
+    if relative.anchor or ".." in relative.parts or relative.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+        return None
+    for root in photo_roots() if roots is None else roots:
+        candidate = root / relative
+        if candidate.is_file():
+            file = candidate.resolve()
+            if file.is_relative_to(root):
+                return file
+    return None
 
 def natural(value):
     return [int(x) if i % 2 else x.casefold() for i, x in enumerate(re.split(r"(\d+)", value or ""))]

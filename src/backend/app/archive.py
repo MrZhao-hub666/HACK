@@ -1,11 +1,12 @@
 """Restore the immutable source-page and source-row indexes on a fresh database."""
 import json
-from hashlib import sha256
+from hashlib import file_digest, sha256
 from psycopg.types.json import Jsonb
 from .catalog import DOCS, PACK
 
 MATERIALS=DOCS/"materials"
 MANIFEST=MATERIALS/"catalog-evidence.json"
+SOURCE_HASHES=MATERIALS/"catalog-source-hashes.json"
 PDFS={"en":"kooying catalog.pdf","cn":"冠隆产品册.pdf"}
 MARKETS={"en":"外贸","cn":"国内"}
 
@@ -30,11 +31,19 @@ def restore(conn):
     state=conn.execute("SELECT revision FROM catalog_archive_version WHERE id=1").fetchone()
     if state and state["revision"]==revision:return
     data=json.loads(raw)
+    hashes = json.loads(SOURCE_HASHES.read_text(encoding="utf8")) if SOURCE_HASHES.is_file() else {}
     with conn.cursor() as cur:
         pages=[]
         for doc,count in (("en",34),("cn",23)):
             file=PDFS[doc]
-            fingerprint=sha256((PACK/file).read_bytes()).hexdigest()
+            source = PACK / file
+            if source.is_file():
+                with source.open("rb") as stream:
+                    fingerprint = file_digest(stream, "sha256").hexdigest()
+            else:
+                fingerprint = hashes.get(file, "")
+                if len(fingerprint) != 64 or len(bytes.fromhex(fingerprint)) != 32:
+                    raise ValueError(f"缺少目录 PDF 或来源指纹：{file}")
             for n in range(1,count+1):
                 key=f"{doc}-{n:02}"
                 words=json.loads((MATERIALS/"ocr"/(key+".json")).read_text(encoding="utf8"))

@@ -50,7 +50,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    catalog.value = await api<ProductCatalog>("/catalog");
+    catalog.value = await api<ProductCatalog>("/catalog?marketed_only=true");
     page.value = Math.min(page.value, pages.value);
   } catch (err) {
     error.value = errorMessage(err);

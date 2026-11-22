@@ -20,9 +20,21 @@ data/
 debug.log
 .ruff_cache/
 /鼓式刹车片照片等8个文件/
-/docs/materials/
+/docs/materials/*
+!/docs/materials/catalog-08.jpg
+!/docs/materials/catalog-13.jpg
+!/docs/materials/catalog-evidence.json
+!/docs/materials/catalog-observations.json
+!/docs/materials/catalog-source-hashes.json
+!/docs/materials/ocr/
+/docs/materials/ocr/layout-review.json
+!/docs/materials/pages/
+!/docs/materials/photos/
 /docs/UI/
 /docs/*.xlsx
+!/docs/冠英产品知识库.xlsx
+!/docs/国内刹车片目录.xlsx
+!/docs/外贸刹车片国别目录.xlsx
 /docs/*.docx
 
 /backups/

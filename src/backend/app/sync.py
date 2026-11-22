@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import load_workbook
-from .catalog import BOOK, PACK, SHEETS, LEGACY_FIELDS, db, order_specs
+from .catalog import BOOK, SHEETS, LEGACY_FIELDS, db, order_specs, photo_path, photo_roots
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -37,6 +37,7 @@ def cell_text(value):
 
 def from_book(wb):
     result, keys = {}, set()
+    roots = photo_roots()
     for name, (_,fields) in SHEETS.items():
         sheet = wb[name]
         headers = list(next(sheet.values))
@@ -73,8 +74,7 @@ def from_book(wb):
                     raise ValueError(f"图片第 {i} 行引用了不存在的规格")
                 if not row["path"]:
                     raise ValueError(f"图片第 {i} 行缺少路径")
-                f = (PACK / row["path"]).resolve()
-                if not f.is_relative_to(PACK.resolve()) or not f.is_file() or f.suffix.lower() not in {".jpg",".jpeg",".png"}:
+                if photo_path(row["path"], roots) is None:
                     raise ValueError(f"图片第 {i} 行路径无效")
             records.append(row)
         result[name] = records

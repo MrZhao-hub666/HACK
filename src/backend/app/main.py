@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from .catalog import DOCS, PACK, FIELDS, db, init_db, order_specs
+from .catalog import DOCS, FIELDS, db, init_db, order_specs, photo_path, photo_roots
 from .match import Turn, extract, match
 from .routing import route_inquiry
 from .sync import sync
@@ -71,7 +71,7 @@ def photo_digest(path, modified, size):
 
 PHOTO_VIEW_LABELS = ("实拍三视图 · 正面", "实拍三视图 · 反面", "实拍三视图 · 侧面")
 
-def catalog(prefixes=None,compact=False):
+def catalog(prefixes=None,compact=False,marketed_only=False):
     with db() as conn:
         foreign={}
         domestic_parts=defaultdict(list)
@@ -79,8 +79,14 @@ def catalog(prefixes=None,compact=False):
             foreign={r["legacy_key"]:r for group in read_tables(conn,prefixes).values() for r in group}
             for part in domestic.read_rows(conn,prefixes):
                 domestic_parts[part["legacy_key"]].append(part)
-        condition="" if prefixes is None else " WHERE spec_id=ANY(%s)"
-        args=None if prefixes is None else (list(foreign.keys()|domestic_parts.keys()),)
+        keys = None if prefixes is None else list(foreign.keys() | domestic_parts.keys())
+        if marketed_only:
+            keys = [row["spec_id"] for row in conn.execute("""
+                SELECT spec_id FROM catalog_spec WHERE market IN ('国内','外贸')
+                AND (%s::text[] IS NULL OR spec_id=ANY(%s))
+            """, (keys, keys))]
+        condition = "" if keys is None else " WHERE spec_id=ANY(%s)"
+        args = None if keys is None else (keys,)
         columns="spec_id,code,name,series,brand,vehicle,axle,fit_notes,market,kind,source,width,thickness,holes" if compact else "*"
         rows=order_specs(conn.execute(f"SELECT {columns} FROM catalog_spec"+condition,args).fetchall())
         references=conn.execute("SELECT * FROM catalog_reference"+condition+" ORDER BY scheme,number",args).fetchall()
@@ -97,9 +103,10 @@ def catalog(prefixes=None,compact=False):
         by_spec.setdefault(ref["spec_id"],[]).append(ref)
     albums, seen = {}, set()
     galleries = defaultdict(lambda: defaultdict(dict))
+    roots = photo_roots() if images else ()
     for m in images:
-        file = (PACK / m["path"]).resolve()
-        if not file.is_relative_to(PACK.resolve()) or not file.is_file():
+        file = photo_path(m["path"], roots)
+        if file is None:
             continue
         stat = file.stat()
         signature = (m["spec_id"], photo_digest(file,stat.st_mtime_ns,stat.st_size))
@@ -154,8 +161,8 @@ def routing_index(revision):
     return catalog(compact=True)
 
 @router.get("/api/catalog")
-def products(country:str|None=None):
-    return dict(items=country_candidates(catalog(),country),fields=FIELDS,**status())
+def products(country:str|None=None, marketed_only:bool=False):
+    return dict(items=country_candidates(catalog(marketed_only=marketed_only),country),fields=FIELDS,**status())
 
 @router.get("/api/status")
 def status():
@@ -175,8 +182,8 @@ def domestic_picture(key:str):
 
 @router.get("/api/photo/{path:path}")
 def photo(path:str):
-    target=(PACK/path).resolve()
-    if not target.is_relative_to(PACK.resolve()) or not target.is_file() or target.suffix.lower() not in {".jpg",".jpeg",".png"}:
+    target = photo_path(path)
+    if target is None:
         raise HTTPException(404)
     return FileResponse(target)
 
