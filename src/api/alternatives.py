@@ -3,8 +3,8 @@
 import json
 import re
 import unicodedata
-from typing import Literal
 from html import unescape
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
@@ -19,6 +19,7 @@ from .prospects import (
     host,
     matching_company,
     market_key,
+    market_query_name,
     public_search,
     samples,
     save_company,
@@ -38,6 +39,12 @@ FAMILIES = {
     "OEM采购商": "整车及配套制造",
     "ODM采购商": "整车及配套制造",
 }
+VEHICLE_EVIDENCE = re.compile(
+    r"truck|fleet|haulage|prime mover|commercial vehicle|lorry|\bhgvs?\b|"
+    r"\blkws?\b|nutzfahrzeug|重卡|卡车|车队|牵引车|商用车|挂车",
+    re.I,
+)
+BRAKE_EVIDENCE = re.compile(r"brak(?:e|ing)|制动|刹车", re.I)
 PUBLIC_SOURCES = [
     (
         "Swift Haulage Berhad",
@@ -110,6 +117,15 @@ def public_catalog():
     return rows
 
 
+def local_candidates(db):
+    return public_catalog() + [
+        dict(row)
+        for row in db.execute(
+            "SELECT * FROM companies WHERE saved=1 AND evidence_url<>'' AND checked<>''"
+        )
+    ]
+
+
 def facts(row):
     # Only business-profile fields are retained. Private notes and inquiry messages never enter discovery.
     return {
@@ -144,6 +160,33 @@ def keys(profile):
     return result
 
 
+def market_present(text, places):
+    for place in places:
+        if not place.isascii():
+            location = re.sub(
+                rf"(?:从|自)\s*{re.escape(place)}\s*(?:采购|进口|购入)"
+                rf"|(?:向|销往|出口到|出口至|发往)\s*{re.escape(place)}",
+                "",
+                text,
+            )
+            if place in location:
+                return True
+            continue
+        country = rf"\b{re.escape(place)}\b"
+        location = re.sub(
+            rf"\b(?:(?:import(?:s|ed|ing)?|sourc(?:e[ds]?|ing)|supplied|purchased|bought)"
+            rf"\s+[^.!?;\n]{{0,70}}?\bfrom|"
+            rf"made in|manufactured in|aus|nach|"
+            rf"(?:to|into)(?:\s+(?:buyers|customers|(?:repair )?workshops?)\s+(?:across|in|throughout))?)"
+            rf"\s+(?:the\s+)?{country}",
+            "",
+            text,
+        )
+        if re.search(country, location):
+            return True
+    return False
+
+
 def live_profile(row, source):
     text = unescape(
         re.sub("<[^>]+>", " ", row["name"] + " " + row["evidence"])
@@ -152,6 +195,8 @@ def live_profile(row, source):
     places = [market] + [cn for cn, en in MARKETS.items() if en.casefold() == market]
     if len(source["country"]) > 2:
         places.append(source["country"].casefold())
+    if market == "germany":
+        places.append("deutschland")
     if market == "malaysia":
         places += [
             "马来西亚",
@@ -162,26 +207,13 @@ def live_profile(row, source):
             "penang",
             "malaysian",
         ]
-    if not any(place in text for place in places) or not re.search(
-        r"truck|fleet|haulage|prime mover|commercial vehicle|lorry|重卡|商用车|车队",
-        text,
-    ):
+    if not market_present(text, places) or not VEHICLE_EVIDENCE.search(text):
         return None
     if re.search(r"\b(top \d+|jobs|vacancies|directory of)\b", row["name"], re.I):
         return None
-    kind = row["kind"]
-    if kind == "待识别":
-        if re.search(
-            r"distribut|wholesal|parts supplier|trade in|spare parts shop|批发|经销",
-            text,
-        ):
-            kind = "贸易商"
-        elif re.search(r"haulage|prime movers|车队", text):
-            kind = "车队"
     return {
         **row,
         "country": source["country"],
-        "kind": kind,
         "evidence": unescape(re.sub("<[^>]+>", "", row["evidence"])),
     }
 
@@ -215,10 +247,9 @@ def shortlist(db, source, pool):
             or FAMILIES.get(profile["kind"]) != FAMILIES[source["kind"]]
         ):
             continue
-        if not re.search(
-            r"fleet|truck|brak(e|ing)|haulage|prime mover|lorry|commercial vehicle|车队|重卡|卡车|牵引车|商用车|制动|刹车|挂车",
-            profile["evidence"],
-            re.I,
+        if not (
+            VEHICLE_EVIDENCE.search(profile["evidence"])
+            or BRAKE_EVIDENCE.search(profile["evidence"])
         ):
             continue
         if source["evidence_url"] and source["evidence_url"].rstrip("/") == profile[
@@ -395,39 +426,57 @@ def context(db, ident, req):
 def generate(ident: int, req: Search, user=Depends(workspace_user)):
     with database() as db:
         source, owner, snapshot = context(db, ident, req)
-    if req.mode == "live":
+    mode = req.mode
+    local_query = source["country"] + " · " + FAMILIES[source["kind"]]
+    query = local_query
+    pool = []
+    live_search = None
+    failure = None
+    if mode == "live":
         # Explicit public market + coarse business type only; no customer identity or free-form inquiry keywords.
-        market = market_key(source["country"])
-        public_market = next(
-            (en for en in MARKETS.values() if en.casefold() == market), "international"
-        )
-        found = discover(
-            Discovery(market=public_market, kind=source["kind"], mode="live")
-        )
-        query = found["query"]
-        pool = [p for raw in found["items"] if (p := live_profile(raw, source))]
-    else:
-        query = source["country"] + " · " + FAMILIES[source["kind"]]
-        pool = public_catalog()
+        public_market = market_query_name(source["country"]) or "international"
+        live_search = {"sources": None, "fallback": None}
+        try:
+            found = discover(
+                Discovery(market=public_market, kind=source["kind"], mode="live")
+            )
+        except HTTPException as exc:
+            if exc.status_code != 502:
+                raise
+            failure = exc
+        else:
+            query = found["query"]
+            live_search["sources"] = len(found["items"])
+            pool = [p for raw in found["items"] if (p := live_profile(raw, source))]
     with database(True) as db:
         if context(db, ident, req)[2] != snapshot:
             raise HTTPException(409, "询盘、企业或推荐批次已变更，请刷新后重试")
-        if req.mode == "local":
-            pool += [
-                dict(r)
-                for r in db.execute(
-                    "SELECT * FROM companies WHERE saved=1 AND evidence_url<>'' AND checked<>''"
-                )
-            ]
-        selected = shortlist(db, source, pool)
+        selected = shortlist(
+            db, source, pool if mode == "live" else local_candidates(db)
+        )
+        if live_search is not None and not selected:
+            selected = shortlist(db, source, local_candidates(db))
+            if selected:
+                mode, query = "local", local_query
+                live_search["fallback"] = "local"
+            else:
+                previous = batch(db, ident)
+                if previous and previous["items"]:
+                    live_search["fallback"] = "previous"
+                elif failure:
+                    raise HTTPException(
+                        502, "实时网页搜索失败，本地资料和历史推荐中也没有符合条件的候选。"
+                    ) from failure
         if not owner:
             owner = user["display_name"]
             db.execute("UPDATE inquiries SET owner=? WHERE id=?", (owner, ident))
             audit(db, ident, owner, "分配负责人", owner)
+        if live_search and live_search["fallback"] == "previous":
+            return {**batch(db, ident), "live_search": live_search}
         db.execute("DELETE FROM alternative_batches WHERE inquiry_id=?", (ident,))
         db.execute(
             "INSERT INTO alternative_batches VALUES(?,?,?,?,?)",
-            (ident, source["id"], utc(), req.mode, query),
+            (ident, source["id"], utc(), mode, query),
         )
         for position, (key, profile) in enumerate(selected, 1):
             rid = db.execute(
@@ -445,7 +494,10 @@ def generate(ident: int, req: Search, user=Depends(workspace_user)):
             "查找替代买家",
             f"{query} · {len(selected)} 家 · 负责人 {owner}",
         )
-        return batch(db, ident)
+        result = batch(db, ident)
+        if live_search is not None:
+            result["live_search"] = live_search
+        return result
 
 
 @router.get("/api/alternatives/mine")

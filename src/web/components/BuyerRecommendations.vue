@@ -54,6 +54,7 @@ async function load(manual = false) {
       );
       if (manual) {
         if (feed.value.error) toast("推荐更新失败", "error");
+        else if (feed.value.notice) toast("本轮网页推荐未更新", "info");
         else toast("推荐已更新");
       }
     }
@@ -125,8 +126,8 @@ watch(clock, () => { if (!document.hidden) load(); });
       <small v-if="feed?.updated">网页推荐更新于 {{ stamp(feed.updated) }}</small>
       <small v-else-if="feed && !feed.configured">网页推荐需配置实时搜索</small>
     </div>
-    <div v-if="error || feed?.error" class="notice" role="alert">
-      {{ error || feed?.error }}
+    <div v-if="error || feed?.error || feed?.notice" class="notice" :role="error || feed?.error ? 'alert' : 'status'">
+      {{ error || feed?.error || feed?.notice }}
       <span v-if="feed?.updated">网页卡片来自上次成功检索。</span>
     </div>
     <LoadingSkeleton

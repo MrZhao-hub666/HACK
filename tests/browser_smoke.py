@@ -7,7 +7,9 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
+import httpx
 import uvicorn
 from playwright.sync_api import sync_playwright, expect
 
@@ -86,6 +88,7 @@ def check_loading_states(context, url):
 
 
 def check_alternative_buyers(page):
+    page.locator(".ticket").filter(has_text="Nadia · 演示维修厂").click()
     panel = page.locator(".alternative-panel")
     panel.locator("summary").click()
     page.get_by_role("button", name="去关联企业").click()
@@ -122,6 +125,86 @@ def check_alternative_buyers(page):
     expect(panel.locator(".alternative-card")).to_have_count(1)
     expect(panel).to_contain_text("已采纳")
     expect(panel).to_contain_text("负责人 · 林悦")
+
+
+def check_alternative_fallback(context, url):
+    upstream = httpx.Response(503, request=httpx.Request("POST", "https://api.exa.ai/search"))
+    with (
+        patch.dict(os.environ, {"EXA_API_KEY": "browser-test"}),
+        patch("src.api.prospects.httpx.post", return_value=upstream) as search,
+    ):
+        page = context.new_page()
+        try:
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.goto(url + "/#inbox")
+            page.locator(".ticket").filter(has_text="Nadia · 演示维修厂").click()
+            panel = page.locator(".alternative-panel")
+            panel.locator("summary").click()
+            panel.get_by_label("检索来源").select_option("live")
+            panel.get_by_role("button", name="重新查找").click()
+            expect(panel.get_by_role("status")).to_have_text(
+                "实时网页搜索暂不可用。已改用本地公开资料。"
+            )
+            expect(panel.locator(".alt-batch")).to_contain_text("本地公开资料")
+            expect(panel.locator(".alternative-card")).to_have_count(1)
+            assert search.call_count == 2
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        finally:
+            page.close()
+
+
+def check_web_search_recovery(context, url):
+    failing = False
+
+    def search(endpoint, **kwargs):
+        return httpx.Response(
+            503 if failing else 200,
+            request=httpx.Request("POST", endpoint),
+            json={"results": [{
+                "title": "Parts Search Fixture",
+                "url": "https://parts.example/catalog",
+                "highlights": ["We sell commercial vehicle spare parts to workshops."],
+            }]},
+        )
+
+    with (
+        patch.dict(os.environ, {"EXA_API_KEY": "browser-test"}),
+        patch("src.api.prospects.httpx.post", side_effect=search),
+    ):
+        page = context.new_page()
+        try:
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.goto(url + "/#discovery")
+            page.get_by_label("数据来源").select_option("live")
+            run = page.get_by_role("button", name="搜索企业")
+            result = page.get_by_role("heading", name="Parts Search Fixture")
+            run.click()
+            expect(result).to_be_visible()
+            expect(page.locator(".companycard .tag")).to_have_text("贸易商")
+            failing = True
+            run.click()
+            expect(page.get_by_role("alert")).to_contain_text("上次结果")
+            expect(result).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.get_by_label("目标市场").select_option("德国")
+            run.click()
+            expect(page.get_by_role("alert")).to_contain_text("实时搜索服务不可用")
+            expect(page.get_by_role("alert")).not_to_contain_text("上次结果")
+            expect(result).to_have_count(0)
+
+            failing = False
+            page.goto(url + "/#outreach")
+            page.get_by_label("检索范围").select_option("live")
+            run = page.get_by_role("button", name="检索线索")
+            run.click()
+            expect(result).to_be_visible()
+            failing = True
+            run.click()
+            expect(page.get_by_role("alert")).to_contain_text("上次结果")
+            expect(result).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        finally:
+            page.close()
 
 
 def check_outreach(page):
@@ -511,7 +594,9 @@ def main():
                 expect(page.locator(".pills .on")).to_have_text("业务待回")
                 expect(page.locator(".ticket")).to_have_count(4)
                 check_alternative_buyers(page)
+                check_alternative_fallback(context, url)
                 check_outreach(page)
+                check_web_search_recovery(context, url)
                 page.get_by_role("button", name="买家发现", exact=True).click()
                 expect(page.locator(".companycard")).to_have_count(3)
                 page.set_viewport_size({"width": 390, "height": 844})

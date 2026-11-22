@@ -267,12 +267,12 @@ def search(req: Search):
 
 def bluesky_posts(query):
     try:
-        result = httpx.get(
+        result = prospects.search_request(
+            httpx.get,
             "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts",
             params={"q": query, "limit": 25, "sort": "latest"},
             timeout=10,
         )
-        result.raise_for_status()
         posts = result.json()["posts"]
         if not isinstance(posts, list):
             raise ValueError

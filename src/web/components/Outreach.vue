@@ -19,6 +19,7 @@ const search = ref({ keywords: "", market: "", edition: "", mode: "local" });
 const results = ref<{ query: string; mode: string; items: Signal[] } | null>(
   null,
 );
+let resultCriteria = "";
 const data = ref<OutreachData>({
   evidence: [],
   buyers: [],
@@ -74,11 +75,17 @@ async function act(fn: () => Promise<void>, failureMessage = "") {
   }
 }
 async function lookup() {
-  results.value = null;
-  results.value = await api("/outreach/search", "POST", {
-    ...search.value,
-    source: source.value,
-  });
+  const criteria = { ...search.value, source: source.value };
+  const key = JSON.stringify(criteria);
+  if (key !== resultCriteria) results.value = null;
+  try {
+    results.value = await api("/outreach/search", "POST", criteria);
+    resultCriteria = key;
+  } catch (e) {
+    if (results.value?.items.length)
+      throw Error(errorMessage(e) + " 当前显示相同检索条件的上次结果。");
+    throw e;
+  }
 }
 watch(source, () => {
   results.value = null;
