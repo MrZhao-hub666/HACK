@@ -1,9 +1,9 @@
-"""Run against an isolated SQLite database and the real Vue UI in Chromium."""
+"""Run against an isolated PostgreSQL schema and the real Vue UI in Chromium."""
 
+from tests.pg_workspace import test_workspace
 import os
 import re
 import socket
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -13,9 +13,10 @@ import httpx
 import uvicorn
 from playwright.sync_api import sync_playwright, expect
 
-from src.api.main import app
-from src.api.accounts import create_account, encode_password
-from src.api.db import database
+from src.backend.api.main import app
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.db import database
+from src.backend.api.domestic import examples as seed_domestic_examples
 
 
 def check_loading_states(context, url):
@@ -131,7 +132,7 @@ def check_alternative_fallback(context, url):
     upstream = httpx.Response(503, request=httpx.Request("POST", "https://api.exa.ai/search"))
     with (
         patch.dict(os.environ, {"EXA_API_KEY": "browser-test"}),
-        patch("src.api.prospects.httpx.post", return_value=upstream) as search,
+        patch("src.backend.api.prospects.httpx.post", return_value=upstream) as search,
     ):
         page = context.new_page()
         try:
@@ -169,7 +170,7 @@ def check_web_search_recovery(context, url):
 
     with (
         patch.dict(os.environ, {"EXA_API_KEY": "browser-test"}),
-        patch("src.api.prospects.httpx.post", side_effect=search),
+        patch("src.backend.api.prospects.httpx.post", side_effect=search),
     ):
         page = context.new_page()
         try:
@@ -507,9 +508,9 @@ def check_domestic_import_retry(context, url):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
+    with test_workspace():
         os.environ.update(
-            DB_PATH=str(Path(tmp) / "ui.sqlite3"), DEMO_DATA="1", ENABLE_SIMULATOR="1"
+            DEMO_DATA="1", ENABLE_SIMULATOR="1"
         )
         os.environ.pop("ADMIN_BOOTSTRAP_PASSWORD_HASH", None)
         os.environ.pop("EXA_API_KEY", None)
@@ -536,7 +537,7 @@ def main():
                 create_account(db, "lin.yue", "林悦", "admin", encoded)
                 create_account(db, "chen.zhou", "陈舟", "sales", encoded)
             with sync_playwright() as pw:
-                browser = pw.chromium.launch()
+                browser = pw.chromium.launch(channel=os.getenv("WORKBENCH_BROWSER_CHANNEL") or None)
                 context = browser.new_context(viewport={"width": 1440, "height": 1000})
                 page = context.new_page()
                 errors = []
@@ -589,6 +590,23 @@ def main():
                 expect(editor).to_be_hidden()
                 expect(page).to_have_url(url + "/#companies")
                 page.get_by_role("button", name="工作台总览").click()
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.get_by_role("button", name="打开导航").click()
+                page.locator(".mobile-nav").get_by_role("button", name="跟进简报").click()
+                brief.get_by_role("button", name="报价问答").click()
+                question = brief.get_by_role("textbox", name="报价问题")
+                question.fill("外弧 200，宽度 100，厚度 18/22")
+                brief.get_by_role("button", name="计算报价").click()
+                expect(brief.get_by_role("status")).to_contain_text("请在原问题里补充材料名称")
+                question.fill("外弧 200，宽度 100，厚度 18/22，半金属，100 片多少钱？")
+                brief.get_by_role("button", name="计算报价").click()
+                expect(brief.get_by_role("status")).to_contain_text("12.14 元")
+                expect(brief.get_by_role("status")).to_contain_text("1214.00 元")
+                expect(brief.get_by_role("status")).to_contain_text("12000 元/吨")
+                assert brief.evaluate("el => el.scrollWidth <= el.clientWidth")
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                page.keyboard.press("Escape")
+                page.set_viewport_size({"width": 1440, "height": 1000})
                 page.get_by_role("tab", name="询盘跟进统计").click()
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
                 expect(page.locator(".pills .on")).to_have_text("业务待回")

@@ -2,7 +2,7 @@
 
 ## 范围与使用者
 
-拓客销售核实目标企业，值班销售接住夜间来信，区域销售接手后补资料、登记回复并进入后续报价。每天约十条询价的规模适合单个 FastAPI 服务和 SQLite 命名卷。工作台把来源证据、客户原话、可操作的下一步放在同一个视图。市场名、语言、公司自述只作为判断线索。
+拓客销售核实目标企业，值班销售接住夜间来信，区域销售接手后补资料、登记回复并进入后续报价。每天约十条询价的规模适合一个 FastAPI 服务与现有 PostgreSQL 数据库。工作台把来源证据、客户原话、可操作的下一步放在同一个视图。市场名、语言、公司自述只作为判断线索。
 
 ## 系统关系
 
@@ -23,12 +23,16 @@ flowchart TD
   WX["微信客服"] --> Adapter
   Adapter --> Inbox["消息处理"]
   Intake --> Inbox
-  Inbox --> DB["SQLite"]
+  Inbox --> DB["PostgreSQL · sales / 产品目录"]
+  API --> Catalogue["目录匹配与报价"]
+  Catalogue --> DB
   Find --> DB
   API --> DB
 ```
 
-浏览器采用同源请求。Compose 用 Nginx 提供 Vue 文件并转发 API 及回调。本地开发可直接用 FastAPI 提供同一套静态文件。每个新请求使用独立 SQLite 连接，开启外键、等待锁及 WAL；多个写入通过短事务串行。部署目标为单实例单 worker，数据卷使用本地文件系统。扩展多副本时需引入共享数据库及微信游标锁。
+浏览器采用同源请求。Compose 用 Nginx 提供 Vue 文件并转发 API 及回调。本地开发可直接用 FastAPI 提供同一套静态文件。销售写事务使用 PostgreSQL 事务级咨询锁，以保留消息去重、账号变更和分派的并发语义。询盘通过 `sales.inquiry_quotes` 关联报价快照，创建草稿和保存关联同时提交。目录同步继续使用原有事务锁。
+
+销售助手复用两级目录检索，用对话追问确认条件，在结果卡展示型号和报价。报价优先采用适用的目录价目，具备条件的按片鼓片可按 `quote_config.json` 的元/吨价格试算。销售助手与询盘价目草稿共用 `src/backend/app/quotes.py` 的价目校验。产品管理按国内、外贸及外贸车系查看详细规格。外贸目录、国内目录和产品知识库各自同步，单个工作簿失败时，其他工作簿仍会同步并更新各自的检索版本。
 
 ## 主动发现与证据
 
@@ -72,13 +76,13 @@ flowchart TD
 
 工作台面向同一销售团队。销售和管理员共享业务队列。管理员另有成员创建、密码重置和账号启停权限。登录名和显示名各自唯一，保持既有按姓名归属的工单与经办记录稳定。首位管理员通过部署端命令创建。登录页和个人账号面板沿用相同的 Noto 排版、Lucide 图标和动效 Token。
 
-密码使用独立随机盐和 600,000 次 PBKDF2-HMAC-SHA256，数据库记录算法、迭代次数、盐和摘要。浏览器接收 HttpOnly、SameSite=Strict 的随机会话 Cookie，SQLite 仅保存令牌摘要、账号和绝对过期时间。登录、改密会轮换令牌，重置密码与停用账号会撤销所有会话。临时密码会话仅用于查看当前身份、改密或退出。业务经办人始终取自服务端会话。[密码存储参考](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+密码使用独立随机盐和 600,000 次 PBKDF2-HMAC-SHA256，数据库记录算法、迭代次数、盐和摘要。浏览器接收 HttpOnly、SameSite=Strict 的随机会话 Cookie，PostgreSQL 保存令牌摘要、账号和绝对过期时间。登录、改密会轮换令牌，重置密码与停用账号会撤销所有会话。临时密码会话仅用于查看当前身份、改密或退出。业务经办人始终取自服务端会话。[密码存储参考](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 
 浏览器写请求携带自定义请求头，服务拒绝跨站浏览器写入。登录尝试按账号和连接来源限频。会话与业务响应使用 no-store。登录过期、退出或跨标签切换账号时，前端卸载之前的业务组件；再次登录可返回当前页面。
 
 ## 界面设计规范
 
-工作台采用 Material Design 3 的排版角色与动效刻度，保留冠英的黑、橙、蓝品牌色。全局 Token 维护在 [tokens.css](src/web/tokens.css)，组件通过语义角色取值。新增页面优先复用现有角色，调整全局密度或字号时从 Token 入口修改。[Material 3 排版](https://m3.material.io/styles/typography/type-scale-tokens) · [Material 3 动效](https://m3.material.io/styles/motion/easing-and-duration/tokens-specs)
+工作台采用 Material Design 3 的排版角色与动效刻度，保留冠英的黑、橙、蓝品牌色。全局 Token 维护在 [tokens.css](src/frontend/tokens.css)，组件通过语义角色取值。新增页面优先复用现有角色，调整全局密度或字号时从 Token 入口修改。[Material 3 排版](https://m3.material.io/styles/typography/type-scale-tokens) · [Material 3 动效](https://m3.material.io/styles/motion/easing-and-duration/tokens-specs)
 
 ### 排版与图标
 
@@ -94,7 +98,7 @@ flowchart TD
 | 时间、来源、字段标签 | 12 / 16 | `--type-caption`、`--type-label-medium` |
 | 英文栏目眉题 | 11 / 16 | `--type-label-small` |
 
-图标统一使用 Lucide Vue 组件，业务语义与图标的映射集中在 [icons.ts](src/web/icons.ts)。行内图标 16、导航与常规操作 20、强调图标 24，统一描边 1.75。图标跟随文字颜色。纯图标按钮提供可访问名称，带文字的图标对屏幕阅读器隐藏。[Lucide Vue](https://lucide.dev/guide/vue/getting-started)
+图标统一使用 Lucide Vue 组件，业务语义与图标的映射集中在 [icons.ts](src/frontend/icons.ts)。行内图标 16、导航与常规操作 20、强调图标 24，统一描边 1.75。图标跟随文字颜色。纯图标按钮提供可访问名称，带文字的图标对屏幕阅读器隐藏。[Lucide Vue](https://lucide.dev/guide/vue/getting-started)
 
 ### 色彩、间距与层级
 

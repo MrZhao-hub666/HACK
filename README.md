@@ -2,26 +2,51 @@
 
 面向商用车制动片出口团队。销售可以按市场发现企业、打开业务证据、核实采购角色，在同一收件箱分派 Facebook、微信客服、WhatsApp、Instagram、X、TikTok、Telegram 和 LINE 的客户来信。模拟消息和人工补录均标记来源。
 
-## 启动
+## 本地整合开发
 
-需要 Docker 和 Docker Compose v2 或以上。在本文件所在目录执行：
+在 Windows 项目根目录依次运行 `start-backend.bat` 和 `start-frontend.bat`，然后打开销售工作台。需要 Docker Desktop、uv、Python 3.12 和 Node.js 22.12+。首次运行前端前先执行 `npm --prefix src/frontend ci` 安装依赖。后端脚本启动 PostgreSQL 和带热重载的 FastAPI，前端脚本在 `src/frontend` 下执行 `npm run dev`。[销售工作台](http://127.0.0.1:5174)
+
+| 服务 | 本机地址或位置 |
+| --- | --- |
+| 统一 Vue 工作台，后续 UI 设计入口 | `src/frontend`，端口 5174 |
+| 统一 FastAPI，含获客、登录、选型与报价 | `src/backend/api/main.py`，本机端口 8081 |
+| 产品目录模块、两级匹配与 Excel 同步 | `src/backend/app`，由同一个 API 进程加载 |
+| PostgreSQL 16 | `catalog` 数据库，本机默认端口 25432。销售表在 `sales`，目录在 `public`、`domestic_catalog`、`foreign_catalog` |
+
+本机 PostgreSQL 端口可在根目录 `.env` 中通过 `PG_PORT` 覆盖。Windows 如提示 Docker 无法绑定原端口 `55432`，将 `PG_PORT` 改为 `25432` 后重新运行启动脚本。
+
+首次运行请在另一终端为本地工作台创建管理员，按提示设置自己的密码。
+
+```powershell
+.\.venv\Scripts\python.exe -m src.backend.api.accounts init-admin --username admin --name 工作台管理员
+```
+
+在「询盘收件箱」选中客户，打开「智能选型」。点击「根据询盘匹配型号」会读取最近最多 30 段客户来信、登记的销售回复和本次补充原话，调用本地目录匹配。客户补充框只参与当前匹配。系统保留有歧义的候选，返回追问、匹配依据、产品图和目录出处。销售确认规格、数量和计价单位后可以保存报价草稿，缺少有效价目时显示「待核价」。同一工作台可按询盘回看最近 25 份草稿。报价快照和询盘关联在同一数据库事务中保存。
+
+在侧栏打开「销售助手」，输入客户需求，例如「客户要配鼓式刹车片，旧件编号 FMSI 4702a」。模型理解自然语言，目录规则读取明确的编号和尺寸、核对规格并选择追问。点击型号卡片可在右侧查看图片、参数和目录出处，窄屏上详情显示在对话下方。点击「复制对客答复」可复制本轮答复。匹配到有效目录价时，答复包含计价单位、单价、数量和总额。预设材料价显示为内部试算，缺少有效目录价时客户答复提示待核价。
+
+单独核算材料价可以在「跟进简报 → 报价问答」输入「外弧 200，宽度 100，厚度 18/22，半金属，100 片多少钱？」。尺寸按毫米填写，等厚规格可填写 `20/20`。输入片数后同时计算总价。
+
+在 [quote_config.json](src/backend/api/quote_config.json) 直接填写材料名和对应数字，统一为人民币元/吨。预设包括半金属、低金属、无石棉有机、陶瓷基、无铜陶瓷、玻纤增强、矿物纤维增强及芳纶增强八档。数值用于演示和内部试算，正式对客金额取自有效企业价目。后端每次试算读取配置。
+
+从 GitHub 克隆可直接启动工作台，试用获客、模拟询盘和独立材料试算。演示真实型号、目录原页和实拍图片前，将企业原资料包 `鼓式刹车片照片等8个文件`、`docs/materials` 和原有目录工作簿放回相同位置并重启后端。Docker 部署在仓库根目录的 `.env` 填写 `SALES_LLM_API_KEY`、`SALES_LLM_BASE_URL` 和 `SALES_LLM_MODEL`。本机开发可继续使用 `src/backend/.env.local` 中现有的 `LLM_*` 设置。销售助手将对话文本发送给所配置的模型供应方，模型不可用时界面显示目录检索状态。询盘选型默认使用本地规则。
+
+## Docker 工作台
 
 ```sh
 docker compose up -d --build --wait
 ```
 
-工作台在 [localhost:8080](http://localhost:8080)，接口清单在 [localhost:8080/docs](http://localhost:8080/docs)。健康检查为 `GET /api/health`。Compose 默认仅绑定本机，API 容器保持在内部网络。SQLite 保存在命名卷 `sales_data`，普通 `docker compose down` 后数据仍保留。若端口占用，将 `.env.example` 复制为 `.env` 并修改 `PORT`。首次构建下载基础镜像及依赖，在 Node 构建阶段执行 TypeScript 检查和 Vite 打包。运行时由 Nginx 提供本地静态资源。
+容器版工作台在 [localhost:8080](http://localhost:8080)。API 容器直接连接同一 PostgreSQL 服务。容器与本地开发入口共享账号、询盘和目录，数据卷为 `guanying-catalog_catalog_pg`。Compose 挂载工作簿目录用于双向同步，原始资料包以只读方式挂载。整库备份用 `pg_dump -Fc`，原始图片和 Excel 需要另行备份。
 
-本地开发使用 Python 3.12 和 Node.js 22.12+。在项目根目录执行
+### 迁移已有获客数据
 
-```sh
-python -m pip install -r src/api/requirements.txt
-npm --prefix src/web ci
-npm --prefix src/web run build
-python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
+其他机器升级前先停止旧服务写入，准备一致的旧库副本（包含未合并的 WAL）。启动数据库，并在首次启动新版 API 前运行以下命令。选择主库作为第一个参数；可额外传入同一套演示数据的容器副本。导入会拒绝有不同业务数据的副本或已使用的目标库。迁移按原 ID 复制全部 17 张旧表，逐行比对后提交，并在 `backups/` 保存两份来源的压缩逻辑备份。一个来源时只备份该库。
+
+```powershell
+docker compose up -d --wait db
+uv run --locked python -m scripts.migrate_leads data/leads.sqlite3
 ```
-
-打开 [localhost:8000](http://localhost:8000)。FastAPI 同源提供 `src/web/dist`，SQLite 默认位于 `data/leads.sqlite3`。修改前端时可在第二个终端执行 `npm --prefix src/web run dev`，打开终端显示的地址，Vite 会热更新组件并将 API 请求转发至 8000 端口。直接启动 Python 时使用进程环境变量，Compose 会读取根目录 `.env`。
 
 在「海外销售工作台」横栏下切换统计标签。默认打开「客户经营统计」，按已入档企业统计全部客户、北京时间今日新增、已确认成交、待分配和跟进中客户。点击数字或图表可查看对应企业，再打开档案。客户分布可切换国家 / 地区、业务类型和采购能力；分级沿用展会拓客的 A/B/C 与待评级，来源按首次入档统计。入档趋势可查看近 7 天、近 30 天或互不重叠的档龄区间。升级前缺少入档时间的企业列为“入档时间未知”。销售在「客户档案 → 编辑档案 → 成交记录」确认或撤回成交。
 
@@ -31,19 +56,19 @@ python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 管理员与团队登录
 
-未配置自动初始化时，从项目目录在交互式终端创建第一位管理员。命令会提示输入至少 12 个字符的临时密码。直接运行 Python 服务时，在使用相同 `DB_PATH` 的终端执行第二种命令。
+未配置自动初始化时，从项目目录在交互式终端创建第一位管理员。命令会提示输入至少 12 个字符的临时密码。直接运行 Python 服务时，在使用相同 PostgreSQL 连接配置的终端执行第二种命令。
 
 ```sh
 # Docker Compose
-docker compose exec api python -m src.api.accounts init-admin --username admin --name 工作台管理员
+docker compose exec api python -m src.backend.api.accounts init-admin --username admin --name 工作台管理员
 
 # 本地 Python
-python -m src.api.accounts init-admin --username admin --name 工作台管理员
+python -m src.backend.api.accounts init-admin --username admin --name 工作台管理员
 ```
 
-打开工作台，用刚创建的账号登录并设置个人密码。点击侧栏底部的姓名，进入「成员管理」添加销售或管理员、停用账号或重置临时密码。成员可以在「我的账号」修改自己的密码和退出登录。忘记密码由管理员重置，管理员丢失密码时，部署维护者可运行 `docker compose exec api python -m src.api.accounts recover-admin --username admin`。
+打开工作台，用刚创建的账号登录并设置个人密码。点击侧栏底部的姓名，进入「成员管理」添加销售或管理员、停用账号或重置临时密码。成员可以在「我的账号」修改自己的密码和退出登录。忘记密码由管理员重置，管理员丢失密码时，部署维护者可运行 `docker compose exec api python -m src.backend.api.accounts recover-admin --username admin`。
 
-希望空数据库启动时使用固定管理员凭据，可先运行 `docker compose exec api python -m src.api.accounts hash-password` 并输入预定密码，再把生成的哈希值用单引号包裹，填入部署端 `.env` 的 `ADMIN_BOOTSTRAP_PASSWORD_HASH`。直接运行 Python 时传入同名环境变量。启动时若用户表为空，工作台会创建可直接登录的 `admin`。已有账号时，部署维护者可给 `recover-admin --username admin` 加上 `--permanent`，输入同一个密码后即可直接登录。
+希望空数据库启动时使用固定管理员凭据，可先运行 `docker compose exec api python -m src.backend.api.accounts hash-password` 并输入预定密码，再把生成的哈希值用单引号包裹，填入部署端 `.env` 的 `ADMIN_BOOTSTRAP_PASSWORD_HASH`。直接运行 Python 时传入同名环境变量。启动时若用户表为空，工作台会创建可直接登录的 `admin`。已有账号时，部署维护者可给 `recover-admin --username admin` 加上 `--permanent`，输入同一个密码后即可直接登录。
 
 普通登录会话最长 8 小时，勾选「保持登录 14 天」后可跨浏览器重启保留会话。修改密码会使本账号其他设备退出，重置密码或停用会使该账号全部会话失效。HTTPS 部署设置 `SESSION_COOKIE_SECURE=1` 后重建 API 容器。项目的本地 HTTP 回环部署使用默认值 0。
 
@@ -73,7 +98,7 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 
 在「询盘收件箱」选择询盘，关联企业档案后展开「寻找替代买家」。用已有的 L&R Haulage 档案和「本地公开资料」即可试用。未分派的询盘点击「认领并查找」，已有负责人的询盘点击「查找并推荐」。查找会保留原处理状态。
 
-每次最多推荐三家。负责人可在侧栏 Copilot 助手的「替代买家」中查看待办，其他成员仍可在共享询盘查看结果。交接询盘后，待办跟随当前负责人。已有客户显示档案与跟进负责人；新候选可加入客户档案。同一原企业的候选标记「不相关」后，再次查找会排除该候选。
+每次最多推荐三家。负责人可在侧栏「跟进简报 → 替代买家」中查看待办，其他成员仍可在共享询盘查看结果。交接询盘后，待办跟随当前负责人。已有客户显示档案与跟进负责人，新候选可加入客户档案。同一原企业的候选标记「不相关」后，再次查找会排除该候选。
 
 本地模式使用带出处的公开企业资料，包括马来西亚车队、维修和配件经销企业，以及工作台内有核查日期和业务证据的档案。配置 Exa 或 Brave 搜索密钥后可主动选择实时搜索。推荐卡列出市场与业务重叠、业务原文、查阅日期、公开联系渠道和采购能力。只有负责人填写双方竞争事实和公开原文并确认后，才会显示「竞争关系已人工核实」。配置实时搜索时，编辑依据内也可主动检索同时提及双方的竞争线索。
 
@@ -91,7 +116,7 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 | 负责人 | 按当前登录成员筛选“我的”，负责人可从启用成员中分派 | `AUTO_ASSIGN=1` 给新询盘分配当前未结束工单最少的销售 |
 | 演示与真实数据 | 首次初始化四条标记“模拟数据”的询盘及一条公开企业档案 | 干净部署前设置 `DEMO_DATA=0`。设置 `ENABLE_SIMULATOR=0` 可关闭模拟入口。已有数据不受参数切换影响 |
 
-此版本覆盖第一条赛题。界面中的编码用于识别采购意图和交接，技术选型和正式核价属于后续业务。工作台和业务 API 使用团队账号及服务端会话。渠道回调沿用平台签名校验。
+工作台和业务 API 使用团队账号及服务端会话。渠道回调沿用平台签名校验。正式对客报价以企业有效价目为依据。
 
 使用 Compose 部署时，在项目 `.env` 中填写 `KOOYING_EXA_API_KEY` 或 `BRAVE_API_KEY`，执行 `docker compose up -d` 使配置生效。项目 Exa 密钥优先于通用的 `EXA_API_KEY`。直接运行 Python 时使用 `EXA_API_KEY` 或 `BRAVE_API_KEY` 环境变量。两种搜索服务都配置时优先使用 Exa。
 
@@ -114,8 +139,8 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 
 | 路径 | 用途 |
 |---|---|
-| `src/web/` | Vue 3 单文件组件、TypeScript 接口类型、Vite 构建和 Nginx 配置 |
-| `src/api/` | FastAPI、数据模型、SQLite、线索发现、渠道适配、消息归并 |
+| `src/frontend/` | Vue 3 销售工作台、TypeScript 接口类型、Vite 构建和 Nginx 配置 |
+| `src/backend/` | `api/` 提供 FastAPI 入口、销售数据、发现与收件，`app/` 提供产品目录、选型和报价草稿 |
 | `docs/` | 原始需求分析、获客调研和联调手册 |
 | `tests/` | API 回归、并发去重、平台回调及真实浏览器烟测 |
 | `scripts/` | 可重复执行的目标验收命令 |
@@ -124,11 +149,12 @@ python -m src.api.accounts init-admin --username admin --name 工作台管理员
 ## 验收
 
 ```sh
-python -m pip install -r tests/requirements.txt
-python -m playwright install chromium
-python -m scripts.goal
+docker compose up -d --wait db
+uv sync --locked
+uv run python -m playwright install chromium
+uv run python -m scripts.goal
 ```
 
-仓库的 `goal` 验收入口从锁文件安装前端依赖，再执行 TypeScript 检查、Vite 构建、API 测试、Chromium 烟测和 Compose 配置检查。要同时构建并启动容器，可执行 `python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
+仓库的 `goal` 验收入口从锁文件安装前端依赖，再执行 TypeScript 检查、Vite 构建、API 测试、Chromium 烟测和 Compose 配置检查。要同时构建并启动容器，可执行 `uv run python -m scripts.goal --docker`。该选项保留启动成功的服务供演示。
 
 [架构设计](DESIGN.md) · [协作约定](AGENTS.md) · [接口与渠道联调](docs/接口与渠道联调.md) · [需求分析](docs/冠英黑客松需求分析.md) · [海外获客调研](docs/海外潜客发现与社交渠道接入.md)

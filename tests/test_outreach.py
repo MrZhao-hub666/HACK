@@ -3,8 +3,8 @@ from io import BytesIO
 import httpx
 from openpyxl import load_workbook
 
-from src.api import outreach
-from src.api.db import database, initialize
+from src.backend.api import outreach
+from src.backend.api.db import database, initialize
 
 
 BASE = "/api/outreach"
@@ -88,7 +88,7 @@ def test_fair_search_import_retry_and_regrade(client):
     )
     buyer_id = reviewed["company_id"]
     with database(True) as db:
-        db.execute("UPDATE companies SET procurement='仅转售' WHERE id=?", (buyer_id,))
+        db.execute("UPDATE companies SET procurement='仅转售' WHERE id=%s", (buyer_id,))
     assert capture(client)["fit"] == "A"
     extra = capture(client, edition="第139届")
     client.put(

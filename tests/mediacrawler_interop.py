@@ -4,6 +4,7 @@ import argparse
 import io
 import importlib.util
 import json
+from tests.pg_workspace import test_workspace
 import os
 import socket
 import tempfile
@@ -16,10 +17,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api import domestic
-from src.api.accounts import create_account, encode_password
-from src.api.db import database
-from src.api.main import app
+from src.backend.api import domestic
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.db import database
+from src.backend.api.main import app
 
 
 def command(*args):
@@ -36,7 +37,7 @@ def run(checkout):
     spec.loader.exec_module(module)
     upstream = FastAPI()
     upstream.include_router(module.router, prefix="/api")
-    with tempfile.TemporaryDirectory() as tmp, socket.socket() as sock:
+    with test_workspace(), tempfile.TemporaryDirectory() as tmp, socket.socket() as sock:
         root = Path(tmp)
         module.DATA_DIR = root / "exports"
         posts = [{"aweme_id": str(i), "desc": "重卡刹车片维修手记"} for i in range(101)]
@@ -71,7 +72,6 @@ def run(checkout):
                 time.sleep(0.05)
             assert server.started, "upstream router did not start"
             os.environ.update(
-                DB_PATH=str(root / "leads.db"),
                 DEMO_DATA="0",
                 MEDIACRAWLER_URL=f"http://127.0.0.1:{port}",
                 MEDIACRAWLER_OWN_POSTS="dy:100",

@@ -1,10 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.accounts import create_account, encode_password
-from src.api.auth import COOKIE
-from src.api.db import database
-from src.api.main import app
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.auth import COOKIE
+from src.backend.api.db import database
+from src.backend.api.main import app
+from .pg_workspace import test_workspace as pg_workspace
 
 HEADERS = {"X-Workspace-Request": "1"}
 INITIAL = "Initial-password-for-test"
@@ -12,8 +13,7 @@ PERSONAL = "Personal-password-for-test"
 
 
 @pytest.fixture
-def browser(tmp_path, monkeypatch):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "auth.db"))
+def browser(monkeypatch):
     monkeypatch.setenv("DEMO_DATA", "0")
     monkeypatch.delenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", raising=False)
     with TestClient(app, headers=HEADERS) as client:
@@ -31,21 +31,23 @@ def login(client, name="admin", password=INITIAL, remember=False):
     )
 
 
-def test_fixed_admin_password_survives_an_empty_database_rebuild(tmp_path, monkeypatch):
+def test_fixed_admin_password_survives_an_empty_database_rebuild(monkeypatch):
     monkeypatch.setenv("DEMO_DATA", "0")
-    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", encode_password(PERSONAL))
-    for filename in ("before.sqlite3", "rebuilt.sqlite3"):
-        monkeypatch.setenv("DB_PATH", str(tmp_path / filename))
-        with TestClient(app, headers=HEADERS) as client:
-            response = login(client, password=PERSONAL)
-            assert response.is_success
-            assert not response.json()["user"]["must_change"]
-            assert client.get("/api/auth/members").is_success
+    original = encode_password(PERSONAL)
+    changed = encode_password(INITIAL)
+    for _ in range(2):
+        with pg_workspace():
+            monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", original)
+            with TestClient(app, headers=HEADERS) as client:
+                response = login(client, password=PERSONAL)
+                assert response.is_success
+                assert not response.json()["user"]["must_change"]
+                assert client.get("/api/auth/members").is_success
 
-    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", encode_password(INITIAL))
-    with TestClient(app, headers=HEADERS) as client:
-        assert login(client, password=INITIAL).status_code == 401
-        assert login(client, password=PERSONAL).is_success
+            monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD_HASH", changed)
+            with TestClient(app, headers=HEADERS) as client:
+                assert login(client, password=INITIAL).status_code == 401
+                assert login(client, password=PERSONAL).is_success
 
 
 def test_session_and_actor(browser):

@@ -1,0 +1,302 @@
+import os
+from psycopg.errors import UniqueViolation
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from typing import Literal
+
+from .accounts import bootstrap_admin, team
+from .alternatives import router as alternatives_router
+from .auth import browser_write, router as auth_router, workspace_user
+from .channels import receiver_settings, router
+from .db import audit, database, initialize, one, utc
+from .domestic import router as domestic_router
+from .inbox import detail, edit, get_inquiry, merge, receive
+from .intelligence import INTENTS
+from .markets import DISCOVERY_MARKETS
+from .models import Company, ContactAgeBand, ContactGender, Discovery, Event, InquiryEdit, Merge, Note, Reply
+from .outreach import router as outreach_router
+from .prospects import company_domain, discover, save_company, search_credentials
+from .quote_calculation import QuoteConfigurationError, calculate_quote
+from .recommendations import recommendations, refresh as refresh_recommendations
+from .seed import seed
+from src.backend.app import main as catalogue
+from .selection import router as selection_router
+
+
+@asynccontextmanager
+async def lifespan(app):
+    async with catalogue.lifespan(app):
+        initialize()
+        bootstrap_admin()
+        seed()
+        yield
+
+
+app = FastAPI(title="冠英 · 海外销售工作台", version="1.0.0", lifespan=lifespan)
+app.include_router(router)
+app.include_router(auth_router)
+business = APIRouter(dependencies=[Depends(workspace_user), Depends(browser_write)])
+
+
+@app.middleware("http")
+async def private_responses(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/auth/"):
+        return JSONResponse({"detail": "请核对账号格式和密码长度"}, status_code=422)
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.get("/api/health")
+def health():
+    with database() as db:
+        db.execute("SELECT 1 FROM inquiries LIMIT 1").fetchone()
+    return {"status": "ok"}
+
+
+class QuoteQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=3000)
+
+
+@business.post("/api/copilot/quote")
+def copilot_quote(req: QuoteQuestion):
+    try:
+        return calculate_quote(req.question)
+    except QuoteConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@business.get("/api/config")
+def config():
+    with database() as db:
+        sales = team(db)
+        sync = {
+            r["provider"]: dict(r) for r in db.execute("SELECT * FROM channel_sync")
+        }
+    return {
+        "team": sales,
+        "intents": INTENTS,
+        "live_search": search_credentials() is not None,
+        "discovery_markets": [
+            {"region": region, "markets": list(markets)}
+            for region, markets in DISCOVERY_MARKETS.items()
+        ],
+        "receivers": [
+            {
+                "id": k,
+                "name": name,
+                "configured": all(os.getenv(x) for x in keys),
+                "sync": sync.get(k),
+            }
+            for k, name, keys in receiver_settings()
+        ],
+        "llm": bool(os.getenv("LLM_API_KEY") and os.getenv("LLM_MODEL")),
+        "demo": os.getenv("ENABLE_SIMULATOR", "1") == "1",
+    }
+
+
+@business.post("/api/discovery/search")
+def discovery(req: Discovery):
+    return discover(req)
+
+
+@business.get("/api/discovery/recommendations")
+def buyer_recommendations():
+    return recommendations()
+
+
+@business.post("/api/discovery/recommendations/refresh")
+def update_buyer_recommendations(automatic: bool = False):
+    return refresh_recommendations(automatic)
+
+
+class NewCompany(Company):
+    source: Literal["销售录入", "已核验样例", "实时网页搜索"] = "销售录入"
+    checked: str = Field(default="", max_length=32)
+
+
+@business.get("/api/companies")
+def companies():
+    with database() as db:
+        return [
+            dict(r)
+            for r in db.execute(
+                """SELECT c.*,
+                   (SELECT min(e.fit) FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实') AS outreach_grade,
+                   (SELECT e.quote FROM outreach_evidence e WHERE e.company_id=c.id
+                    AND e.verdict='已核实' ORDER BY e.fit,e.updated DESC LIMIT 1) AS outreach_quote
+                   FROM companies c WHERE c.saved=1 ORDER BY c.id DESC"""
+            )
+        ]
+
+
+@business.post("/api/companies")
+def adopt(req: NewCompany, user=Depends(workspace_user)):
+    with database(True) as db:
+        return save_company(
+            db,
+            req.model_dump(exclude={"source", "checked"}),
+            req.source,
+            req.checked,
+            owner=user["display_name"],
+        )
+
+
+class CompanyUpdate(Company):
+    owner: str | None = Field(default=None, max_length=80)
+    contact_gender: ContactGender | None = None
+    contact_age_band: ContactAgeBand | None = None
+    confirmed_deal: bool | None = None
+
+
+@business.put("/api/companies/{ident}")
+def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
+    data = req.model_dump(exclude_none=True, exclude={"confirmed_deal"})
+    data["domain"] = company_domain(data)
+    with database(True) as db:
+        previous = one(db, "SELECT * FROM companies WHERE id=%s", (ident,))
+        if req.confirmed_deal is not None and req.confirmed_deal != bool(previous["won_at"]):
+            data["won_at"] = utc() if req.confirmed_deal else None
+            data["won_by"] = user["display_name"] if req.confirmed_deal else None
+        if (
+            data.get("owner")
+            and data["owner"] != previous["owner"]
+            and data["owner"] not in team(db)
+        ):
+            raise HTTPException(422, "请选择启用的档案负责人")
+        try:
+            db.execute(
+                "UPDATE companies SET reviewed=1,"
+                + ",".join(f"{k}=%s" for k in data)
+                + " WHERE id=%s",
+                [*data.values(), ident],
+            )
+        except UniqueViolation as exc:
+            raise HTTPException(409, "该官网已关联其他买家") from exc
+        if any(
+            previous[key] != data[key] for key in ("name", "kind", "country", "website")
+        ):
+            db.execute(
+                "DELETE FROM alternative_batches WHERE source_company_id=%s", (ident,)
+            )
+        return one(db, "SELECT * FROM companies WHERE id=%s", (ident,))
+
+
+@business.post("/api/demo/inquiries")
+def simulate(event: Event, user=Depends(workspace_user)):
+    if os.getenv("ENABLE_SIMULATOR", "1") != "1":
+        raise HTTPException(403, "模拟入口已关闭")
+    return receive(
+        event.model_copy(update={"account": "demo:" + event.account}),
+        "模拟渠道",
+        actor=user["display_name"],
+    )
+
+
+@business.post("/api/inquiries/manual")
+def manual(event: Event, user=Depends(workspace_user)):
+    return receive(
+        event.model_copy(update={"account": "manual:" + event.account}),
+        "销售补录",
+        actor=user["display_name"],
+    )
+
+
+@business.get("/api/inquiries")
+def inquiries():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone(timedelta(hours=8)))
+    start = now.replace(hour=20, minute=0, second=0, microsecond=0)
+    if start > now:
+        start -= timedelta(days=1)
+    with database() as db:
+        return [
+            dict(r)
+            for r in db.execute(
+                """
+        SELECT i.*, c.name AS company,
+          EXISTS(SELECT 1 FROM messages u WHERE u.inquiry_id=i.id AND u.answered=0) AS unanswered,
+          EXISTS(SELECT 1 FROM messages n WHERE n.inquiry_id=i.id AND n.at>=%s AND n.at<%s
+                 AND n.answered=0) AS night_unanswered,
+          (SELECT string_agg(DISTINCT ch.channel, ',' ORDER BY ch.channel) FROM messages ch WHERE ch.inquiry_id=i.id) AS all_channels,
+          m.channel,coalesce(nullif(m.body,''),m.attachment) AS preview,m.origin,m.features,
+          (SELECT count(*) FROM messages WHERE inquiry_id=i.id) AS message_count
+        FROM inquiries i LEFT JOIN companies c ON c.id=i.company_id
+        JOIN messages m ON m.id=(SELECT id FROM messages WHERE inquiry_id=i.id ORDER BY at DESC,id DESC LIMIT 1)
+        WHERE merged_into IS NULL ORDER BY i.last_in DESC,i.id DESC""",
+                (utc(start), utc(start + timedelta(hours=12))),
+            )
+        ]
+
+
+@business.get("/api/inquiries/{ident}")
+def inquiry(ident: int):
+    with database() as db:
+        return detail(db, ident)
+
+
+@business.patch("/api/inquiries/{ident}")
+def update(ident: int, req: InquiryEdit, user=Depends(workspace_user)):
+    with database(True) as db:
+        return edit(db, ident, req, user["display_name"])
+
+
+@business.post("/api/inquiries/{ident}/notes")
+def note(ident: int, req: Note, user=Depends(workspace_user)):
+    with database(True) as db:
+        get_inquiry(db, ident)
+        audit(db, ident, user["display_name"], "跟进备注", req.text)
+        return detail(db, ident)
+
+
+@business.post("/api/inquiries/{ident}/reply")
+def reply(ident: int, req: Reply, user=Depends(workspace_user)):
+    with database(True) as db:
+        item = get_inquiry(db, ident)
+        latest = db.execute(
+            "SELECT max(id) FROM messages WHERE inquiry_id=%s", (ident,)
+        ).fetchone()["max"]
+        if req.through_message_id is not None and latest != req.through_message_id:
+            raise HTTPException(409, "有新来信，请核对最新消息后再登记回复")
+        db.execute("UPDATE messages SET answered=1 WHERE inquiry_id=%s", (ident,))
+        db.execute(
+            "UPDATE inquiries SET replied=%s,owner=%s,state='等客户补充' WHERE id=%s",
+            (utc(), item["owner"] or user["display_name"], ident),
+        )
+        audit(db, ident, user["display_name"], "登记人工回复", req.text)
+        return detail(db, ident)
+
+
+@business.post("/api/inquiries/{ident}/merge")
+def link(ident: int, req: Merge, user=Depends(workspace_user)):
+    with database(True) as db:
+        return merge(db, ident, req.target_id, user["display_name"])
+
+
+business.include_router(alternatives_router)
+business.include_router(outreach_router)
+business.include_router(domestic_router)
+business.include_router(selection_router)
+business.include_router(catalogue.router)
+app.include_router(business)
+
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="workbench")

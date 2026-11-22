@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from src.api.main import app
-from src.api import channels, prospects
+from src.backend.api.main import app
+from src.backend.api import channels, prospects
 
 
 def event(c, event_id="e1", **kw):
@@ -608,7 +608,7 @@ def test_alternative_live_privacy_quality_and_failure(client, monkeypatch):
 
 
 def test_alternative_context_change_during_search(client, monkeypatch):
-    from src.api import alternatives
+    from src.backend.api import alternatives
 
     src = client.post(
         "/api/companies", json={"name": "A", "country": "巴西", "kind": "车队"}

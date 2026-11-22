@@ -1,12 +1,33 @@
-name: kooying-leads
+name: guanying-catalog
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: catalog
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog_local}
+    ports:
+      - "127.0.0.1:${PG_PORT:-25432}:5432"
+    volumes:
+      - catalog_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d catalog"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
   api:
     build:
       context: .
-      dockerfile: src/api/Dockerfile
+      dockerfile: src/backend/Dockerfile
+      args:
+        PYTHON_IMAGE: ${WORKBENCH_PYTHON_IMAGE:-python:3.12-slim}
     restart: unless-stopped
     environment:
-      DB_PATH: /data/leads.sqlite3
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: catalog
+      PGUSER: catalog
+      PGPASSWORD: ${POSTGRES_PASSWORD:-catalog_local}
       ADMIN_BOOTSTRAP_PASSWORD_HASH: ${ADMIN_BOOTSTRAP_PASSWORD_HASH:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
       DEMO_DATA: ${DEMO_DATA:-1}
@@ -16,6 +37,9 @@ services:
       MEDIACRAWLER_OWN_POSTS: ${MEDIACRAWLER_OWN_POSTS:-}
       EXA_API_KEY: ${KOOYING_EXA_API_KEY:-${EXA_API_KEY:-}}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SALES_LLM_BASE_URL: ${SALES_LLM_BASE_URL:-}
+      SALES_LLM_MODEL: ${SALES_LLM_MODEL:-}
+      SALES_LLM_API_KEY: ${SALES_LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
@@ -42,8 +66,12 @@ services:
       WX_AES_KEY: ${WX_AES_KEY:-}
       WX_CORP_ID: ${WX_CORP_ID:-}
       WX_KF_SECRET: ${WX_KF_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - sales_data:/data
+      - ./docs:/app/docs
+      - ./鼓式刹车片照片等8个文件:/app/鼓式刹车片照片等8个文件:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
       interval: 10s
@@ -52,7 +80,10 @@ services:
   web:
     build:
       context: .
-      dockerfile: src/web/Dockerfile
+      dockerfile: src/frontend/Dockerfile
+      args:
+        NODE_IMAGE: ${WORKBENCH_NODE_IMAGE:-node:24-alpine}
+        NGINX_IMAGE: ${WORKBENCH_NGINX_IMAGE:-nginx:stable-alpine}
     depends_on:
       api:
         condition: service_healthy
@@ -65,4 +96,4 @@ services:
       timeout: 5s
       retries: 3
 volumes:
-  sales_data:
+  catalog_pg:

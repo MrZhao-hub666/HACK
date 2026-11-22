@@ -7,7 +7,7 @@
 在部署目录运行以下命令，将四条带标记的演示记录写入工作台数据库。启用 `ENABLE_SIMULATOR=1` 时可执行，重复运行会显示四条重复。
 
 ```sh
-docker compose exec -T api python -m src.api.domestic examples
+docker compose exec -T api python -m src.backend.api.domestic examples
 ```
 
 这些样例仅供本地索引接口测试。实时界面只显示真实导入的作品和评论。产品线索可来自作品，购买意愿取自评论。销售核实公开求购方的企业名称后，可点「核实并建档」，采购权限初始为待核实。
@@ -15,14 +15,14 @@ docker compose exec -T api python -m src.api.domestic examples
 部署者也可从本机导入 UTF-8 JSON。传 `dy` 表示抖音，`xhs` 表示小红书。以下是在 Docker 部署目录执行的两种方式。
 
 ```sh
-docker compose exec -T api python -m src.api.domestic import dy - < export.json
+docker compose exec -T api python -m src.backend.api.domestic import dy - < export.json
 ```
 
 ```powershell
-Get-Content -Raw -Encoding utf8 .\export.json | docker compose exec -T api python -m src.api.domestic import dy -
+Get-Content -Raw -Encoding utf8 .\export.json | docker compose exec -T api python -m src.backend.api.domestic import dy -
 ```
 
-直接运行 Python 部署时，在使用相同 `DB_PATH` 的终端执行 `python -m src.api.domestic import dy export.json`。抖音行需要 `aweme_id`，小红书需要 `note_id`，评论还需要 `comment_id` 和 `content`。作品读取 `title`、`desc`，时间支持秒或毫秒。索引保存平台、外部 ID、原文、检索词和发布时间。原作品链接由平台和作品 ID 构成，部分原帖需在平台内登录查看。重复导入会更新记录并保留已关联的档案。
+直接运行 Python 部署时，在使用相同 PostgreSQL 连接配置 的终端执行 `python -m src.backend.api.domestic import dy export.json`。抖音行需要 `aweme_id`，小红书需要 `note_id`，评论还需要 `comment_id` 和 `content`。作品读取 `title`、`desc`，时间支持秒或毫秒。索引保存平台、外部 ID、原文、检索词和发布时间。原作品链接由平台和作品 ID 构成，部分原帖需在平台内登录查看。重复导入会更新记录并保留已关联的档案。
 
 ## 连接已有的 MediaCrawler WebUI
 
@@ -47,8 +47,8 @@ Compose 的 `MEDIACRAWLER_URL` 指向 `http://host.docker.internal:8092`。服�
 用部署端命令列出并同步已有导出，第二条命令的参数取自第一条命令输出的 `path`。
 
 ```sh
-docker compose exec -T api python -m src.api.domestic list
-docker compose exec -T api python -m src.api.domestic sync douyin/json/search_contents_日期.json
+docker compose exec -T api python -m src.backend.api.domestic list
+docker compose exec -T api python -m src.backend.api.domestic sync douyin/json/search_contents_日期.json
 ```
 
 同步读取完整文件，覆盖默认预览的前 100 条之后的记录。每文件最多 4 MiB、5000 条。命令输出新增、更新、重复和跳过数。配置缺失、连接错误和文件超限会返回错误并退出。时间缺失保留为空。无法识别作品 ID、缺少正文或正文超过 12000 字符的行计入「跳过」，其他有效行仍可导入。

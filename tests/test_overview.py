@@ -3,8 +3,8 @@ from threading import Event
 
 from fastapi import HTTPException
 
-from src.api import prospects
-from src.api.db import database, initialize
+from src.backend.api import prospects
+from src.backend.api.db import database, initialize
 
 
 def test_archive_time_and_explicit_deal_confirmation(client):
@@ -42,7 +42,7 @@ def test_old_archive_stays_undated_on_upgrade_and_replay(client):
         and old["won_at"] is None
     )
     with database(True) as db:
-        db.execute("UPDATE companies SET saved=0 WHERE id=?", (old["id"],))
+        db.execute("UPDATE companies SET saved=0 WHERE id=%s", (old["id"],))
     assert client.post("/api/companies", json=profile).json()["archived_at"]
 
 
