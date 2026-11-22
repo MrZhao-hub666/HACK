@@ -200,6 +200,9 @@ def match(turns, rows, use_model, market=None, country=None, extracted=None):
     number=values.pop("number","")
     scheme=values.pop("scheme","").lower()
     supplier=values.pop("supplier","")
+    # A reference can also be the label of a photo group. It is one clue.
+    if number and norm(values.get("name")) == norm(number):
+        values.pop("name", None)
     candidates=[]
     for r in rows:
         if requested_market and r["market"]!=requested_market:

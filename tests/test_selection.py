@@ -3,7 +3,7 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from src.backend.api import quote_calculation, selection
-from src.backend.app.match import Clues, Turn, local_clues
+from src.backend.app.match import Clues, Turn, local_clues, match
 from src.backend.app.routing import route_inquiry
 from .test_workbench import event
 
@@ -205,6 +205,34 @@ def test_sales_assistant_prices_a_single_discussed_specification(client, monkeyp
     answer = client.post(route, json={"turns": turns}).json()
     assert not answer["confirmed"]
     assert answer["quote"] is None
+
+
+def test_sales_assistant_quotes_wva_29289_after_local_fallback(client, monkeypatch):
+    part = {
+        **dict.fromkeys(("brand", "vehicle", "axle", "series", "fit_notes", "outer_arc")),
+        "spec_id": "FCP0052", "code": "GY-052", "name": "GY-052", "kind": "盘式",
+        "market": "外贸", "status": "目录记录", "width": "78.1", "thickness": "26/26",
+        "size_raw": "181*78.1*26", "references": [{"scheme": "wva", "number": "29289"}],
+    }
+    photo_group = {**part, "spec_id": "IMG-29289", "name": "29289", "references": []}
+
+    def analyze(req):
+        clues = local_clues(req.turns, [part, photo_group])
+        assert clues.name == "29289"
+        result = match(req.turns, [part], False, extracted=(clues, "本地检索"))
+        return {**result, "routing": {"status": "resolved"}}
+
+    monkeypatch.setattr(selection.catalogue, "analyze", analyze)
+    monkeypatch.setattr(selection.quotes, "quote_preview", lambda *_: {"total": None})
+    turns = [{"role": "customer", "text": text} for text in (
+        "Please quote WVA 29289 for our truck parts range and confirm carton size",
+        "1000片", "半金属材质的",
+    )]
+    answer = client.post("/api/sales-assistant", json={"turns": turns}).json()
+    assert answer["confirmed"] and answer["items"][0]["spec_id"] == "FCP0052"
+    assert answer["quote"]["unit_price"] == "11.16" and answer["quote"]["total"] == "11160.00"
+    assert answer["quote"]["basis"] == "盘片目录尺寸试算"
+    assert "外箱尺寸还需核实" in answer["reply"]
 
 
 def test_handoff_preserves_speakers_and_skips_notes(client, monkeypatch):

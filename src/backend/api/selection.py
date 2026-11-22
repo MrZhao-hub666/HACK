@@ -31,10 +31,17 @@ class Draft(quotes.QuoteLine):
 
 def assistant_price(item, words, quantity, unit, *, preview=False):
     thickness = (item["thickness"] or "").split("/")
+    disc = item["kind"] == "盘式"
+    length = item["outer_arc"]
+    if disc and (size := re.fullmatch(
+        rf"\s*({NUMBER})\s*[x×*]\s*{NUMBER}(?:\s*[x×*]\s*{NUMBER})?\s*(?:mm|毫米)?\s*",
+        normalize(item.get("size_raw") or ""),
+    )):
+        length = size[1]
     dimensions = {}
     for label, raw in zip(
         ("外弧", "宽度", "厚度1", "厚度2"),
-        (item["outer_arc"], item["width"], thickness[0], thickness[-1] if len(thickness) <= 2 else None),
+        (length, item["width"], thickness[0], thickness[-1] if len(thickness) <= 2 else None),
     ):
         if raw and re.fullmatch(NUMBER, normalize(raw).strip()):
             dimensions[label] = normalize(raw).strip()
@@ -80,8 +87,9 @@ def assistant_price(item, words, quantity, unit, *, preview=False):
         }, ""
     missing = [label for label in ("外弧", "宽度", "厚度1", "厚度2") if label not in dimensions]
     if item["kind"] != "鼓式" and missing:
+        names = ["长度" if disc and label == "外弧" else label for label in missing]
         return None, (
-            "要用材料公式试算，请补充" + "、".join(missing) +
+            "目录缺少" + "、".join(names) +
             f"（毫米）。如已核对单价，可输入「单价 35 元/{unit}」计算合计。"
         )
 
@@ -102,7 +110,8 @@ def assistant_price(item, words, quantity, unit, *, preview=False):
     return {
         "unit_price": format(Decimal(estimate["unit_price"]) * pieces, ".2f"),
         "total": estimate["total"], "material": estimate["material"],
-        "currency": "CNY", "quantity": quantity, "unit": unit, "basis": "预设材料价试算",
+        "currency": "CNY", "quantity": quantity, "unit": unit,
+        "basis": "盘片目录尺寸试算" if disc else "预设材料价试算",
     }, ""
 
 
@@ -210,6 +219,8 @@ def sales_assistant(req: catalogue.Inquiry):
         item = None
         answer["confirmed"] = False
     answer["reply"] = customer_reply(item, answer["quote"], follow_up)
+    if item is not None and any(re.search(r"\bcarton\s+size\b|外箱尺寸|包装尺寸", text) for text in words):
+        answer["reply"] += "外箱尺寸还需核实。"
     return answer
 
 
