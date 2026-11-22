@@ -9,6 +9,8 @@ import Simulator from "./components/Simulator.vue";
 import Overview from "./components/Overview.vue";
 import WorkspaceNav from "./components/WorkspaceNav.vue";
 import Brief from "./components/Brief.vue";
+import SalesAssistant from "./components/SalesAssistant.vue";
+import Products from "./components/Products.vue";
 import {
   filters,
   matchesFilter,
@@ -35,6 +37,8 @@ const descriptions = {
   discovery: "查找企业和社交渠道采购线索，核实来源与采购能力。",
   outreach: "检索展会买家与采购原帖，整理展位邀约名单。",
   companies: "维护企业资料，记录采购角色与下一步行动。",
+  assistant: "根据客户描述查型号、补信息、算报价。",
+  products: "按市场和车系查阅产品规格、图片与目录出处。",
   simulator: "模拟渠道来信，检查询盘接收、归并与去重。",
   manual: "将原渠道收到的消息补入询盘队列。",
 };
@@ -67,6 +71,7 @@ const failed = ref(""),
   refreshing = ref(false);
 const brief = ref<InstanceType<typeof Brief> | null>(null),
   outreach = ref<InstanceType<typeof Outreach> | null>(null),
+  products = ref<InstanceType<typeof Products> | null>(null),
   mobileNav = ref<HTMLDialogElement | null>(null);
 const page = computed(() => route.value.page);
 const title = computed(() => navPages.find((n) => n.id === page.value)?.name);
@@ -138,6 +143,7 @@ async function reload(manual = false) {
     failed.value = "";
     if (manual === true) {
       await outreach.value?.refresh();
+      await products.value?.refresh();
       toast("数据已刷新");
     }
   } catch (e) {
@@ -263,7 +269,7 @@ onUnmounted(() => {
             <icon name="refresh" size="sm" />
           </button>
           <button
-            v-if="page !== 'manual'"
+            v-if="page !== 'manual' && page !== 'assistant' && page !== 'products'"
             class="primary compose"
             @click="go('manual')"
           >
@@ -271,7 +277,7 @@ onUnmounted(() => {
           </button>
         </div>
       </header>
-      <div class="content" :key="page">
+      <div class="content">
         <div v-if="failed" class="notice" role="alert">
           {{ ready ? "数据刷新失败，当前显示上次读取的结果。" : ""
           }}{{ failed }}
@@ -297,7 +303,11 @@ onUnmounted(() => {
               <p>{{ descriptions[page] }}</p>
             </div>
           </div>
-          <template v-if="ready">
+          <KeepAlive>
+            <SalesAssistant v-if="page === 'assistant'" />
+          </KeepAlive>
+          <Products v-if="page === 'products'" ref="products" />
+          <template v-else-if="page !== 'assistant' && ready">
             <Inbox
               v-if="page === 'inbox'"
               :key="'inbox-' + route.id + '-' + route.filter + '-' + inboxVisit"
@@ -338,7 +348,7 @@ onUnmounted(() => {
               @open="focus"
             />
           </template>
-          <div v-else-if="!failed" class="panel" aria-busy="true">
+          <div v-else-if="page !== 'assistant' && !failed" class="panel" aria-busy="true">
             <div class="panelhead" aria-hidden="true">
               <span class="sk-shape sk-short"></span>
             </div>

@@ -22,6 +22,8 @@ export type Page =
   | "discovery"
   | "outreach"
   | "companies"
+  | "assistant"
+  | "products"
   | "simulator"
   | "manual";
 export type Filter =
@@ -33,6 +35,48 @@ export type Filter =
   | "我的"
   | "已结束";
 export type State = "待处理" | "跟进中" | "等客户补充" | "已结束";
+
+export type CatalogMarket = "国内" | "外贸";
+export type CatalogCountry = "E" | "A" | "J" | "C" | "K" | "N";
+export interface CatalogPart {
+  [key: string]: unknown;
+  spec_id: string;
+  code: string | null;
+  name: string | null;
+  market: CatalogMarket | "待确认" | null;
+  kind: string | null;
+  catalog_country?: string;
+  country_code?: CatalogCountry;
+  source: string | null;
+  evidence: string | null;
+  images: { url: string; label: string }[];
+  photo_views?: { url: string; label: string }[];
+  sources: { label: string; page: string; crop: string }[];
+  references: { scheme: string; number: string; supplier: string | null }[];
+}
+export interface ProductCatalog {
+  items: CatalogPart[];
+  fields: Record<string, string>;
+  sync: string;
+}
+export interface AssistantAnswer {
+  question: string;
+  reply: string;
+  mode: string;
+  count: number;
+  items: CatalogPart[];
+  fields: Record<string, string>;
+  confirmed: boolean;
+  quote: {
+    unit_price: string;
+    total: string;
+    quantity: number;
+    unit: string;
+    currency: string;
+    basis: string;
+    material?: string;
+  } | null;
+}
 export type Intent =
   | "采购询价"
   | "询型匹配"
@@ -209,4 +253,16 @@ export interface AlternativeBatch {
   mode: "local" | "live";
   query: string;
   items: Alternative[];
+}
+export interface QuoteAnswer {
+  missing: string[];
+  materials: string[];
+  quote: {
+    material: string;
+    price_per_tonne: string;
+    dimensions: Record<string, string>;
+    unit_price: string;
+    quantity: string | null;
+    total: string | null;
+  } | null;
 }

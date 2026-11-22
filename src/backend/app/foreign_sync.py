@@ -64,6 +64,8 @@ def synchronize():
         tables_list=", ".join("foreign_catalog."+v[1] for v in COUNTRIES.values())
         conn.execute(f"LOCK TABLE {tables_list} IN SHARE ROW EXCLUSIVE MODE")
         tables=read_tables(conn)
+        if not any(tables.values()):
+            return ""
         current=editable_rows(tables)
         db_hash=data_hash(current)
         raw=BOOK.read_bytes() if BOOK.exists() else None

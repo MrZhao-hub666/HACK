@@ -17,10 +17,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api import domestic
-from src.api.accounts import create_account, encode_password
-from src.api.db import database
-from src.api.main import app
+from src.backend.api import domestic
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.db import database
+from src.backend.api.main import app
 
 
 def command(*args):

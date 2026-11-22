@@ -79,7 +79,7 @@ def init_db():
             snapshot jsonb NOT NULL)""")
         conn.execute("ALTER TABLE quote_draft ADD COLUMN IF NOT EXISTS request_key uuid")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS quote_draft_request_key ON quote_draft(request_key)")
-        from .archive import restore
+        from .archive import MANIFEST, restore
         restore(conn)
         if conn.execute("SELECT current_schema() AS s").fetchone()["s"]=="public":
             from .domestic import install as install_domestic
@@ -90,6 +90,8 @@ def init_db():
             else:
                 conn.execute("SELECT pg_advisory_xact_lock(400713)")
                 migrate_country_ids(conn)
+                if MANIFEST.is_file() and not conn.execute("SELECT 1 FROM foreign_catalog.source LIMIT 1").fetchone():
+                    install(conn)
                 for _,table,_ in COUNTRIES.values():
                     conn.execute(f"ALTER TABLE foreign_catalog.{table} DROP COLUMN IF EXISTS inner_diameter")
 

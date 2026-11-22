@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import Field
+from pydantic import BaseModel, Field
 from typing import Literal
 
 from .accounts import team
@@ -21,7 +21,8 @@ from .inbox import detail, edit, get_inquiry, merge, receive
 from .intelligence import INTENTS
 from .models import Company, Discovery, Event, InquiryEdit, Merge, Note, Reply
 from .outreach import router as outreach_router
-from .prospects import discover, host, save_company, valid_url
+from .prospects import company_domain, discover, save_company
+from .quote_calculation import QuoteConfigurationError, calculate_quote
 from .seed import seed
 from src.backend.app import main as catalogue
 from .selection import router as selection_router
@@ -61,6 +62,20 @@ def health():
     with database() as db:
         db.execute("SELECT 1 FROM inquiries LIMIT 1").fetchone()
     return {"status": "ok"}
+
+
+class QuoteQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=3000)
+
+
+@business.post("/api/copilot/quote")
+def copilot_quote(req: QuoteQuestion):
+    try:
+        return calculate_quote(req.question)
+    except QuoteConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @business.get("/api/config")
@@ -134,9 +149,7 @@ class CompanyUpdate(Company):
 @business.put("/api/companies/{ident}")
 def company_edit(ident: int, req: CompanyUpdate, user=Depends(workspace_user)):
     data = req.model_dump(exclude_none=True, exclude={"confirmed_deal"})
-    for key in ("website", "social", "evidence_url"):
-        valid_url(data[key])
-    data["domain"] = host(data["website"])
+    data["domain"] = company_domain(data)
     with database(True) as db:
         previous = one(db, "SELECT * FROM companies WHERE id=%s", (ident,))
         if req.confirmed_deal is not None and req.confirmed_deal != bool(previous["won_at"]):
@@ -265,6 +278,6 @@ business.include_router(selection_router)
 business.include_router(catalogue.router)
 app.include_router(business)
 
-web = Path(__file__).resolve().parent.parent / "web" / "dist"
-if web.is_dir():
-    app.mount("/", StaticFiles(directory=web, html=True), name="workbench")
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="workbench")

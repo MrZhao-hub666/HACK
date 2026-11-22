@@ -3,8 +3,8 @@ from io import BytesIO
 import httpx
 from openpyxl import load_workbook
 
-from src.api import outreach
-from src.api.db import database, initialize
+from src.backend.api import outreach
+from src.backend.api.db import database, initialize
 
 
 BASE = "/api/outreach"

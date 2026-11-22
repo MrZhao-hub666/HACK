@@ -3,7 +3,7 @@ import re
 import unicodedata
 
 from .foreign import COUNTRIES, canonical_id
-from .match import norm
+from .match import explicit_reference, norm
 
 ID=re.compile(r"(?<![a-z0-9])((?:f[eajcknu]|dc)[gp]\d{4})(?![a-z0-9])",re.I)
 PREFIX=re.compile(r"(?:F[EAJCKN]|DC)[GP]\d{4}")
@@ -19,8 +19,8 @@ TERMS={
     "country":{"A":r"美国|美系|美式|american|us-made|\busa?\b","E":r"欧洲|欧盟|欧系|欧式|european|europe|\beu\b",
                "J":r"日本|日系|日式|japanese|japan","K":r"韩国|韩系|韩式|korean|korea",
                "C":r"中国|国产|中系|chinese|china","N":r"无国别|不限国别|国别不限|country.neutral"},
-    "kind":{"G":r"鼓式|鼓刹|鼓片|制动鼓内|鼓型|鼓形|^鼓$|drum(?: brake)?(?: linings?)?",
-            "P":r"盘式|盘刹|碟刹|碟式|盘片|盘型|盘形|夹住制动盘|^[盘碟]$|dis[ck](?: brake)?(?: pads?)?"}}
+    "kind":{"G":r"鼓式|鼓刹|鼓片|制动鼓内|鼓型|鼓形|鼓状|^鼓$|drum(?: brake)?(?: linings?)?",
+            "P":r"盘式|盘刹|碟刹|碟式|盘片|盘型|盘形|盘状|夹住制动盘|^[盘碟]$|dis[ck](?: brake)?(?: pads?)?"}}
 
 def mentions(text,slot):
     """Only affirmative descriptions of this vehicle count as country evidence."""
@@ -29,6 +29,8 @@ def mentions(text,slot):
         for m in re.finditer(pattern,text,re.I):
             before,after=text[:m.start()],text[m.end():]
             if re.search(r"(?:不是|不要|不用|非|not(?: an?)?|no)\s*$",before,re.I):
+                continue
+            if slot == "country" and re.search(r"(?:出口(?:到|至)?|销往|发(?:货)?(?:到|往)|送(?:到|往))\s*$", before):
                 continue
             if slot=="country" and not (
                 text.strip(" 。.？?!")==m[0] or re.search(r"(车系|车辆国别|国别|制造地)\s*[:：为是]?\s*$",before)
@@ -86,16 +88,16 @@ def route_inquiry(turns,index,clues,market=None,country=None):
     products=[r for r in index if PREFIX.fullmatch(r["spec_id"])]
     available={r["spec_id"][:3] for r in products}
     # Extract the last literal number even if a model rewrites punctuation or casing.
-    explicit=re.compile(r"(?<![a-z0-9])(fmsi|bfmc|wva|oem|oe)\s*(?:号(?:码)?|no\.?|number)?\s*[:：#-]?\s*([a-z\d./-]*\d[a-z\d./-]*)",re.I)
     for text in reversed(customers):
         own=ID.search(text)
-        ref=explicit.search(text)
+        ref=explicit_reference(text)
         if own:
             clues.scheme,clues.number="spec_id",canonical_id(own[1].upper())
+            clues.supplier = ""
             break
         if ref:
-            scheme=ref[1].lower()
-            clues.scheme,clues.number=("oe_ref" if scheme in ("oe","oem") else scheme),ref[2].rstrip(".")
+            clues.scheme, clues.number = ref
+            clues.supplier = ""
             break
         if clues.number and norm(clues.number) in norm(text):
             break
@@ -169,6 +171,10 @@ def route_inquiry(turns,index,clues,market=None,country=None):
     if conflict:
         status="conflict"
         question=f"目录中「{evidence}」对应 {'、'.join(sorted(matched))}，与当前条件有冲突。请核对旧件完整编号、采购版本和盘鼓类型。"
+    elif key and scheme in ("oe_ref", "wva", "bfmc", "fmsi") and not matched:
+        status = "no_catalog"
+        eligible = []
+        question = f"现有目录没有找到编号「{evidence}」，请核对旧件上的完整编码。"
     elif not eligible and not missing:
         status="no_catalog"
         question="现有目录没有覆盖这组条件，请提供旧件完整编号或铭牌，由销售核对。"

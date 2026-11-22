@@ -75,18 +75,19 @@ def printed_rows():
 def install(c):
     c.execute("SELECT pg_advisory_xact_lock(400714)")
     if c.execute("SELECT to_regclass('domestic_catalog.parts') AS t").fetchone()["t"]:
-        return
+        if not MANIFEST.is_file() or c.execute("SELECT 1 FROM domestic_catalog.parts LIMIT 1").fetchone():
+            return
     c.execute("CREATE SCHEMA IF NOT EXISTS domestic_catalog")
-    c.execute(r"""CREATE TABLE domestic_catalog.parts (
+    c.execute(r"""CREATE TABLE IF NOT EXISTS domestic_catalog.parts (
         part_id text PRIMARY KEY CHECK(part_id ~ '^DC[GP][0-9]{4}$'), series text NOT NULL, name text NOT NULL,
         outer_arc text, width text, thickness text CHECK(thickness ~ '^[0-9]+(\.[0-9]+)?/[0-9]+(\.[0-9]+)?$'),
         holes text, picture text NOT NULL, fit_notes text, legacy_key text NOT NULL, option_no integer NOT NULL,
         page_key text NOT NULL, picture_box integer[] NOT NULL, UNIQUE(legacy_key,option_no))""")
-    rows=list(printed_rows())
+    rows=list(printed_rows()) if MANIFEST.is_file() else []
     with c.cursor() as cur:
         cur.executemany("INSERT INTO domestic_catalog.parts VALUES ("+",".join(["%s"]*13)+")",
                         [tuple(r.values()) for r in rows])
-    c.execute("CREATE TABLE domestic_catalog.sync_state (id integer PRIMARY KEY CHECK(id=1), file_hash text, data_hash text)")
+    c.execute("CREATE TABLE IF NOT EXISTS domestic_catalog.sync_state (id integer PRIMARY KEY CHECK(id=1), file_hash text, data_hash text)")
 
 def sales_fields(part):
     values = dict(spec_id=part["part_id"],**{k:part[k] for k in EDITABLE},country_code="C",
@@ -124,6 +125,8 @@ def synchronize():
         install(c)
         c.execute("LOCK TABLE domestic_catalog.parts IN SHARE ROW EXCLUSIVE MODE")
         rows=read_rows(c)
+        if not rows:
+            return ""
         current=[[r[k] for k in LABELS if k!="picture"] for r in rows]
         db_hash=data_hash(current)
         raw=BOOK.read_bytes() if BOOK.exists() else None

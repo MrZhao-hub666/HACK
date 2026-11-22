@@ -1,10 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.accounts import create_account, encode_password
-from src.api.auth import COOKIE
-from src.api.db import database
-from src.api.main import app
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.auth import COOKIE
+from src.backend.api.db import database
+from src.backend.api.main import app
 
 HEADERS = {"X-Workspace-Request": "1"}
 INITIAL = "Initial-password-for-test"

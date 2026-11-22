@@ -2,9 +2,9 @@ from .pg_workspace import test_workspace as pg_workspace
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.accounts import create_account, encode_password
-from src.api.db import database
-from src.api.main import app
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.db import database
+from src.backend.api.main import app
 
 
 @pytest.fixture(autouse=True)

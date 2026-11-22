@@ -158,7 +158,7 @@ def install(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS foreign_catalog.source (
         part_id text PRIMARY KEY, pdf_order integer UNIQUE NOT NULL, observation_id text UNIQUE NOT NULL,
         legacy_key text UNIQUE NOT NULL, page_key text NOT NULL, picture_box integer[] NOT NULL)""")
-    entries=source_rows()
+    entries=source_rows() if MANIFEST.is_file() else []
     with conn.cursor() as cur:
         cur.executemany("""INSERT INTO foreign_catalog.source VALUES (%s,%s,%s,%s,%s,%s)
             ON CONFLICT(part_id) DO NOTHING""",[(v["part_id"],*m) for _,v,m in entries])

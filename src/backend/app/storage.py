@@ -20,7 +20,7 @@ def db():
     if url:
         return connect(url, row_factory=dict_row, connect_timeout=5)
     return connect(
-        host=os.getenv("PGHOST", "127.0.0.1"), port=os.getenv("PGPORT") or os.getenv("PG_PORT", "55432"),
+        host=os.getenv("PGHOST", "127.0.0.1"), port=os.getenv("PGPORT") or os.getenv("PG_PORT", "25432"),
         user=os.getenv("PGUSER", "catalog"), dbname=os.getenv("PGDATABASE", "catalog"),
         password=os.getenv("PGPASSWORD") or os.getenv("POSTGRES_PASSWORD", "catalog_local"),
         row_factory=dict_row, connect_timeout=5,

@@ -1,5 +1,4 @@
 import json
-import re
 from pathlib import Path
 from functools import lru_cache
 import cv2

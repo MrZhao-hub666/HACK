@@ -228,7 +228,7 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .drawer-heading small { color: var(--blue); font: var(--type-label-small); letter-spacing: var(--tracking-overline); }
 .drawer-heading h2 { font: var(--type-title-large); }
 .drawer-heading .close { margin-left: auto; }
-.brief-tabs { display: flex; gap: var(--space-2); margin: var(--space-20) 0 var(--space-12); }
+.brief-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-20) 0 var(--space-12); }
 .brief-summary { background: var(--copilot-fill); border: 1px solid var(--blue-outline); padding: var(--space-12); border-radius: var(--radius-card); }
 .brief-summary small { color: var(--blue); font-weight: var(--weight-semibold); }
 .brief-summary p { margin-top: var(--space-4); color: var(--ink-secondary); }

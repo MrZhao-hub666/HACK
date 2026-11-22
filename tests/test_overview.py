@@ -1,4 +1,4 @@
-from src.api.db import database, initialize
+from src.backend.api.db import database, initialize
 
 
 def test_archive_time_and_explicit_deal_confirmation(client):

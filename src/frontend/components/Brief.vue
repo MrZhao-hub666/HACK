@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AlternativeCard from "./AlternativeCard.vue";
 import LoadingSkeleton from "./LoadingSkeleton.vue";
+import QuoteQuestion from "./QuoteQuestion.vue";
 import { ref, computed } from "vue";
 import { stamp } from "../shared";
 import Icon from "./Icon.vue";
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 }>();
 const dialog = ref<HTMLDialogElement | null>(null),
   topic = ref("优先跟进");
-const topics = ["优先跟进", "我的交接", "客户核实", "替代买家"];
+const topics = ["优先跟进", "我的交接", "客户核实", "替代买家", "报价问答"];
 const mine = computed(() =>
   props.rows.filter((r) => r.owner === props.actor && r.state !== "已结束"),
 );
@@ -100,11 +101,12 @@ defineExpose({ show });
           >
         </button>
       </div>
-      <div v-if="failed" class="notice" role="alert">
+      <div v-if="failed && topic !== '报价问答'" class="notice" role="alert">
         {{ failed }}
         <button class="textbtn" @click="emit('reload')">重试</button>
       </div>
-      <div v-if="ready && topic === '替代买家'" class="brief-result">
+      <QuoteQuestion v-if="topic === '报价问答'" class="brief-result" />
+      <div v-else-if="ready && topic === '替代买家'" class="brief-result">
         <AlternativeCard
           v-for="r in alternatives"
           :key="r.inquiry_id + '-' + r.id"

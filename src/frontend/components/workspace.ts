@@ -14,6 +14,8 @@ export const navigation: {
       { id: "discovery", name: "买家发现", icon: "compass" },
       { id: "outreach", name: "展会拓客", icon: "calendar" },
       { id: "companies", name: "客户档案", icon: "building" },
+      { id: "assistant", name: "销售助手", icon: "spark" },
+      { id: "products", name: "产品管理", icon: "package" },
     ],
   },
   {

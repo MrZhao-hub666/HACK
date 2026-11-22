@@ -11,8 +11,14 @@ from fastapi import HTTPException
 
 from app import sync as bridge
 from app.catalog import BOOK, FIELDS, db, init_db
-from app.main import DraftSearch, Quote, draft, catalog, inquiry_drafts
+from app.main import DraftSearch, catalog, inquiry_drafts
 from app.match import Turn, match
+from app.quotes import Quote, save_quote
+
+
+def draft(request):
+    with db() as conn:
+        return save_quote(conn, request)
 
 def run():
     schema="check_"+uuid.uuid4().hex

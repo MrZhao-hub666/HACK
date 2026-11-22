@@ -30,6 +30,8 @@ flowchart TD
 
 浏览器采用同源请求。Compose 用 Nginx 提供 Vue 文件并转发 API 及回调。本地开发可直接用 FastAPI 提供同一套静态文件。销售写事务使用 PostgreSQL 事务级咨询锁，以保留消息去重、账号变更和分派的并发语义。询盘通过 `sales.inquiry_quotes` 关联报价快照，创建草稿和保存关联同时提交。目录同步继续使用原有事务锁。
 
+销售助手复用两级目录检索，用对话追问确认条件，在结果卡展示型号和报价。报价优先采用适用的目录价目，具备条件的按片鼓片可按 `quote_config.json` 的元/吨价格试算。销售助手与询盘价目草稿共用 `src/backend/app/quotes.py` 的价目校验。产品管理按国内、外贸及外贸车系查看详细规格。外贸目录、国内目录和产品知识库各自同步，单个工作簿失败时，其他工作簿仍会同步并更新各自的检索版本。
+
 ## 主动发现与证据
 
 1. 将输入市场、客户类型和可选关键词转换成面向买家的检索词。车队对应自营维修场景，维修厂对应商用车维修场景。保存实际使用的检索式供核查。
@@ -78,7 +80,7 @@ flowchart TD
 
 ## 界面设计规范
 
-工作台采用 Material Design 3 的排版角色与动效刻度，保留冠英的黑、橙、蓝品牌色。全局 Token 维护在 [tokens.css](src/web/tokens.css)，组件通过语义角色取值。新增页面优先复用现有角色，调整全局密度或字号时从 Token 入口修改。[Material 3 排版](https://m3.material.io/styles/typography/type-scale-tokens) · [Material 3 动效](https://m3.material.io/styles/motion/easing-and-duration/tokens-specs)
+工作台采用 Material Design 3 的排版角色与动效刻度，保留冠英的黑、橙、蓝品牌色。全局 Token 维护在 [tokens.css](src/frontend/tokens.css)，组件通过语义角色取值。新增页面优先复用现有角色，调整全局密度或字号时从 Token 入口修改。[Material 3 排版](https://m3.material.io/styles/typography/type-scale-tokens) · [Material 3 动效](https://m3.material.io/styles/motion/easing-and-duration/tokens-specs)
 
 ### 排版与图标
 
@@ -94,7 +96,7 @@ flowchart TD
 | 时间、来源、字段标签 | 12 / 16 | `--type-caption`、`--type-label-medium` |
 | 英文栏目眉题 | 11 / 16 | `--type-label-small` |
 
-图标统一使用 Lucide Vue 组件，业务语义与图标的映射集中在 [icons.ts](src/web/icons.ts)。行内图标 16、导航与常规操作 20、强调图标 24，统一描边 1.75。图标跟随文字颜色。纯图标按钮提供可访问名称，带文字的图标对屏幕阅读器隐藏。[Lucide Vue](https://lucide.dev/guide/vue/getting-started)
+图标统一使用 Lucide Vue 组件，业务语义与图标的映射集中在 [icons.ts](src/frontend/icons.ts)。行内图标 16、导航与常规操作 20、强调图标 24，统一描边 1.75。图标跟随文字颜色。纯图标按钮提供可访问名称，带文字的图标对屏幕阅读器隐藏。[Lucide Vue](https://lucide.dev/guide/vue/getting-started)
 
 ### 色彩、间距与层级
 

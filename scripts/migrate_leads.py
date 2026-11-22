@@ -9,7 +9,7 @@ import tempfile
 
 from psycopg import sql
 
-from src.api.db import database, initialize, sales_schema
+from src.backend.api.db import database, initialize, sales_schema
 from src.backend.app.catalog import init_db
 
 

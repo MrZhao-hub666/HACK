@@ -121,6 +121,16 @@ export function safeLink(url: string) {
   }
 }
 
+export function catalogMedia(url: string | null) {
+  return url && /^\/api\/(photo|page|observation|domestic-picture|evidence)\//.test(url)
+    ? url
+    : undefined;
+}
+
+export function catalogTitle(part: { code: string | null; name: string | null; spec_id: string }) {
+  return part.code || part.name || part.spec_id;
+}
+
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "操作失败，请重试";
 }

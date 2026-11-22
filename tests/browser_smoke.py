@@ -10,10 +10,10 @@ import time
 import uvicorn
 from playwright.sync_api import sync_playwright, expect
 
-from src.api.main import app
-from src.api.accounts import create_account, encode_password
-from src.api.db import database
-from src.api.domestic import examples as seed_domestic_examples
+from src.backend.api.main import app
+from src.backend.api.accounts import create_account, encode_password
+from src.backend.api.db import database
+from src.backend.api.domestic import examples as seed_domestic_examples
 
 
 def check_loading_states(context, url):
@@ -371,6 +371,23 @@ def main():
                 expect(page.get_by_role("heading", name="编辑客户档案")).to_be_visible()
                 page.get_by_role("button", name="关闭", exact=True).click()
                 page.get_by_role("button", name="工作台总览").click()
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.get_by_role("button", name="打开导航").click()
+                page.locator(".mobile-nav").get_by_role("button", name="跟进简报").click()
+                brief.get_by_role("button", name="报价问答").click()
+                question = brief.get_by_role("textbox", name="报价问题")
+                question.fill("外弧 200，宽度 100，厚度 18/22")
+                brief.get_by_role("button", name="计算报价").click()
+                expect(brief.get_by_role("status")).to_contain_text("请在原问题里补充材料名称")
+                question.fill("外弧 200，宽度 100，厚度 18/22，半金属，100 片多少钱？")
+                brief.get_by_role("button", name="计算报价").click()
+                expect(brief.get_by_role("status")).to_contain_text("12.14 元")
+                expect(brief.get_by_role("status")).to_contain_text("1214.00 元")
+                expect(brief.get_by_role("status")).to_contain_text("12000 元/吨")
+                assert brief.evaluate("el => el.scrollWidth <= el.clientWidth")
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                page.keyboard.press("Escape")
+                page.set_viewport_size({"width": 1440, "height": 1000})
                 page.get_by_role("tab", name="询盘跟进统计").click()
                 page.get_by_role("button", name="待回复询盘", exact=False).click()
                 expect(page.locator(".pills .on")).to_have_text("业务待回")

@@ -102,6 +102,12 @@ def host(url):
     return (urlsplit(url).hostname or "").lower().removeprefix("www.")
 
 
+def company_domain(data):
+    for field in ("website", "social", "evidence_url"):
+        valid_url(data[field])
+    return host(data["website"])
+
+
 def samples():
     return [
         dict(
@@ -236,9 +242,7 @@ def matching_company(db, data):
 
 
 def save_company(db, data, source, checked=None, owner=""):
-    for field in ["website", "social", "evidence_url"]:
-        valid_url(data[field])
-    domain = host(data["website"])
+    domain = company_domain(data)
     existing = matching_company(db, data)
     if existing:
         db.execute(

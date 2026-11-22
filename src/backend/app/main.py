@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections import defaultdict
 from typing import Literal
 from io import BytesIO
@@ -6,35 +7,44 @@ import re
 from functools import lru_cache
 from hashlib import sha256
 from contextlib import asynccontextmanager, suppress
-from datetime import date
-from decimal import Decimal
 from uuid import UUID
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from PIL import Image
-from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 from .catalog import DOCS, PACK, FIELDS, db, init_db, order_specs
 from .match import Turn, extract, match
 from .routing import route_inquiry
 from .sync import sync
-from .foreign import COUNTRIES, canonical_id, country_candidates, read_tables, sales_fields
+from .foreign import country_candidates, read_tables, sales_fields
 from .foreign_sync import synchronize as sync_foreign
+from .quotes import Quote, save_quote
 from . import domestic
 
+logger = logging.getLogger(__name__)
 state = {"sync":"首次同步中"}
 
 def refresh():
-    try:
-        revision=sync_foreign()
-        state.update(foreign_revision=revision,domestic_revision=domestic.synchronize(),sync=sync())
-    except PermissionError:
-        state["sync"] = "请关闭 Excel，文件解锁后会自动重试"
-    except Exception as e:
-        state["sync"] = str(e).splitlines()[0][:220]
+    errors = []
+    for name, key, synchronize in (
+        ("外贸目录", "foreign_revision", sync_foreign),
+        ("国内目录", "domestic_revision", domestic.synchronize),
+        ("产品知识库", "sync", sync),
+    ):
+        try:
+            state[key] = synchronize()
+        except PermissionError:
+            errors.append(f"{name}文件已锁定，请关闭 Excel 后等待重试")
+        except ValueError as exc:
+            errors.append(f"{name}：{str(exc)[:180]}")
+        except Exception:
+            logger.exception("目录同步失败，目录为 %s", name)
+            errors.append(f"{name}同步失败，请查看服务日志")
+    if errors:
+        state["sync"] = "；".join(errors)
 
 async def watch():
     while True:
@@ -58,6 +68,8 @@ router = APIRouter()
 @lru_cache(maxsize=2048)
 def photo_digest(path, modified, size):
     return sha256(path.read_bytes()).digest()
+
+PHOTO_VIEW_LABELS = ("实拍三视图 · 正面", "实拍三视图 · 反面", "实拍三视图 · 侧面")
 
 def catalog(prefixes=None,compact=False):
     with db() as conn:
@@ -84,6 +96,7 @@ def catalog(prefixes=None,compact=False):
     for ref in references:
         by_spec.setdefault(ref["spec_id"],[]).append(ref)
     albums, seen = {}, set()
+    galleries = defaultdict(lambda: defaultdict(dict))
     for m in images:
         file = (PACK / m["path"]).resolve()
         if not file.is_relative_to(PACK.resolve()) or not file.is_file():
@@ -93,11 +106,20 @@ def catalog(prefixes=None,compact=False):
         if signature in seen:
             continue
         seen.add(signature)
-        albums.setdefault(m["spec_id"],[]).append({"label":m["label"],"url":"/api/photo/"+quote(m["path"])})
+        image = {"label": m["label"], "url": "/api/photo/" + quote(m["path"])}
+        if m["label"] in PHOTO_VIEW_LABELS:
+            folder = m["path"].rpartition("/")[0]
+            galleries[m["spec_id"]][folder][m["label"]] = image
+        else:
+            albums.setdefault(m["spec_id"], []).append(image)
     result=[]
     for r in rows:
         r["references"]=by_spec.get(r["spec_id"],[])
         r["images"]=albums.get(r["spec_id"],[])
+        for gallery in galleries.get(r["spec_id"], {}).values():
+            if all(label in gallery for label in PHOTO_VIEW_LABELS):
+                r["photo_views"] = [gallery[label] for label in PHOTO_VIEW_LABELS]
+                break
         source=r["source"] or ""
         r["sources"]=sources.get(r["spec_id"],[])
         r["evidence"]=r["sources"][0]["page"] if r["sources"] else next(("/api/evidence/"+p for p in ("8","13") if f"PDF {p} /" in source),None)
@@ -202,15 +224,6 @@ def analyze(req:Inquiry):
         result["question"]=route["question"]
     return result
 
-class Quote(BaseModel):
-    spec_id:str
-    workspace:UUID|None=None
-    inquiry_id:int|None=Field(default=None,gt=0)
-    request_key:UUID|None=None
-    market:Literal["国内","外贸","待确认"]|None=None
-    quantity:int=Field(gt=0,le=100000000)
-    unit:str=Field(min_length=1,max_length=20)
-
 class DraftSearch(BaseModel):
     workspace: UUID
     inquiries: list[int] = Field(min_length=1)
@@ -229,65 +242,6 @@ def inquiry_drafts(req: DraftSearch):
 def standalone_quote(req: Quote):
     if req.inquiry_id is not None or req.workspace is not None:
         raise HTTPException(422, "关联询盘的报价请从询盘详情创建")
-    return draft(req)
-
-def draft(req:Quote):
     with db() as conn:
         return save_quote(conn, req)
-
-
-def save_quote(conn, req: Quote):
-    key=canonical_id(req.spec_id)
-    workspace = str(req.workspace) if req.workspace else None
-    request = dict(workspace=workspace, inquiry_id=req.inquiry_id, spec_id=key, quantity=req.quantity, unit=req.unit, market=req.market)
-    if req.request_key:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(req.request_key),))
-        saved = conn.execute("SELECT id,snapshot FROM quote_draft WHERE request_key=%s", (req.request_key,)).fetchone()
-        if saved:
-            if saved["snapshot"].get("request") != request:
-                raise HTTPException(409, "该请求已用于其他报价，请重新选择")
-            return dict(id=saved["id"], **saved["snapshot"])
-    part=None
-    domestic_part=None
-    if re.fullmatch(r"DC[GP]\d{4}",key):
-        domestic_part=conn.execute("SELECT * FROM domestic_catalog.parts WHERE part_id=%s",(key,)).fetchone()
-        if domestic_part:key=domestic_part["legacy_key"]
-    if re.fullmatch(r"F[EAJCKN][GP]\d{4}",key):
-        table=COUNTRIES[key[1]][1]
-        part=conn.execute(f"""SELECT t.*,s.legacy_key,s.pdf_order FROM foreign_catalog.{table} t
-            JOIN foreign_catalog.source s USING(part_id) WHERE part_id=%s""",(key,)).fetchone()
-        if part:
-            key=part["legacy_key"]
-    row=conn.execute("SELECT * FROM catalog_spec WHERE spec_id=%s",(key,)).fetchone()
-    if not row:
-        raise HTTPException(404,"规格不存在")
-    if part:
-        row.update(sales_fields(part))
-    if domestic_part:
-        row.update(domestic.sales_fields(domestic_part))
-    if req.market and row["market"]!=req.market:
-        raise HTTPException(409,"目录市场已变动，请重新选择对应规格")
-    required=("sku","material","price","currency","sale_unit","price_source","valid_until")
-    missing=[FIELDS[k] for k in required if not row[k]]
-    if row["sale_unit"] and req.unit!=row["sale_unit"]:
-        missing.append("计价单位不一致")
-    if row["valid_until"] and date.fromisoformat(row["valid_until"]) < date.today():
-        missing.append("价目已过期")
-    if row["status"]!="目录记录" and row["status"]!="企业已核":
-        missing.append("产品关系待核")
-    total=None if missing else str(Decimal(row["price"])*req.quantity)
-    snapshot=dict(spec_id=row["spec_id"],code=row["code"],name=row["name"],sku=row["sku"],
-        market=row["market"],source_pages=row["page_refs"],size=row["size_raw"],
-        material=row["material"],quantity=req.quantity,unit=req.unit,unit_price=row["price"],total=total,
-        currency=row["currency"],source=row["price_source"],valid_until=row["valid_until"],
-        status="待核价" if missing else "报价草稿",missing=missing)
-    if domestic_part:
-        snapshot["thickness"]=domestic_part["thickness"]
-    if req.inquiry_id:
-        snapshot["inquiry_id"] = req.inquiry_id
-        snapshot["workspace"] = workspace
-    if req.request_key:
-        snapshot["request"] = request
-    ref=conn.execute("INSERT INTO quote_draft(snapshot,request_key) VALUES (%s,%s) RETURNING id",(Jsonb(snapshot),req.request_key)).fetchone()
-    return dict(id=ref["id"],**snapshot)
 

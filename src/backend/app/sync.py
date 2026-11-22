@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import load_workbook
-from .catalog import BOOK, PACK, SHEETS, FIELDS, LEGACY_FIELDS, db, order_specs
+from .catalog import BOOK, PACK, SHEETS, LEGACY_FIELDS, db, order_specs
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -145,6 +145,8 @@ def write_snapshot(wb, rows, old_hash, destination=None, source=None):
         path.unlink(missing_ok=True)
 
 def sync():
+    if not BOOK.is_file():
+        return "产品目录待导入"
     with db() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(400712)")
         conn.execute("LOCK TABLE catalog_product, catalog_spec, catalog_media IN SHARE ROW EXCLUSIVE MODE")

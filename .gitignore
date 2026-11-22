@@ -1,6 +1,9 @@
 .env
-.env.local
+.env.*
+!.env.example
 *.local.env
+*.pem
+*.key
 .venv/
 node_modules/
 dist/
@@ -16,7 +19,6 @@ data/
 .worktrees/
 debug.log
 .ruff_cache/
-src/web/dist/
 /鼓式刹车片照片等8个文件/
 /docs/materials/
 /docs/UI/
@@ -24,3 +26,13 @@ src/web/dist/
 /docs/*.docx
 
 /backups/
+/资料/
+*.7z
+*.zip
+.DS_Store
+Thumbs.db
+*.bak
+*.dump
+*.har
+/playwright-report/
+/test-results/

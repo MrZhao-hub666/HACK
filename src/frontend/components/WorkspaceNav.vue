@@ -47,7 +47,7 @@ const emit = defineEmits<{
   <div class="sidebar-foot">
     <button class="assistant-entry" @click="emit('brief')">
       <span class="assistant-symbol"><icon name="spark" size="md" /></span
-      ><b>Copilot 助手</b
+      ><b>跟进简报</b
       ><span
         v-if="recommendations"
         class="assistant-count"

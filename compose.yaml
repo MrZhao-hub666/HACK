@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: catalog
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog_local}
     ports:
-      - "127.0.0.1:${PG_PORT:-55432}:5432"
+      - "127.0.0.1:${PG_PORT:-25432}:5432"
     volumes:
       - catalog_pg:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: src/api/Dockerfile
+      dockerfile: src/backend/Dockerfile
       args:
         PYTHON_IMAGE: ${WORKBENCH_PYTHON_IMAGE:-python:3.12-slim}
     restart: unless-stopped
@@ -35,6 +35,9 @@ services:
       MEDIACRAWLER_URL: ${MEDIACRAWLER_URL:-}
       MEDIACRAWLER_OWN_POSTS: ${MEDIACRAWLER_OWN_POSTS:-}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SALES_LLM_BASE_URL: ${SALES_LLM_BASE_URL:-}
+      SALES_LLM_MODEL: ${SALES_LLM_MODEL:-}
+      SALES_LLM_API_KEY: ${SALES_LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
@@ -75,7 +78,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: src/web/Dockerfile
+      dockerfile: src/frontend/Dockerfile
       args:
         NODE_IMAGE: ${WORKBENCH_NODE_IMAGE:-node:24-alpine}
         NGINX_IMAGE: ${WORKBENCH_NGINX_IMAGE:-nginx:stable-alpine}
