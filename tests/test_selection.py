@@ -144,12 +144,44 @@ def test_sales_assistant_prices_a_single_discussed_specification(client, monkeyp
     route = "/api/sales-assistant"
     turns = [{"role": "customer", "text": "客户旧件是 DCG0001"}]
     assert "多少" in client.post(route, json={"turns": turns}).json()["question"]
+    turns.append({"role": "customer", "text": "半金属"})
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"]["unit_only"] and answer["quote"]["unit_price"] == "12.14"
+    assert "多少" in answer["reply"] and "12.14" not in answer["reply"]
+    turns.pop()
     turns.append({"role": "customer", "text": "半金属，1,200片"})
     answer = client.post(route, json={"turns": turns}).json()
     assert answer["confirmed"]
     assert answer["quote"]["total"] == "14568.00"
     assert answer["quote"]["basis"] == "预设材料价试算"
     assert "14568.00" not in answer["reply"] and "价格还需核实" in answer["reply"]
+
+    turns[-1]["text"] = "半金属，100套"
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"] is None and "每套" in answer["reply"]
+    turns.append({"role": "customer", "text": "每套4片"})
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"]["unit_price"] == "48.56"
+    assert answer["quote"]["total"] == "4856.00"
+    assert answer["quote"]["unit"] == "套" and answer["quote"]["quantity"] == 100
+    assert "4856.00" not in answer["reply"]
+    turns.pop()
+
+    item["kind"] = "盘式"
+    item["outer_arc"] = None
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"] is None and "单价 35 元/套" in answer["question"]
+    turns.append({"role": "customer", "text": "已核单价35.50元/套"})
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"]["total"] == "3550.00"
+    assert answer["quote"]["basis"] == "已核单价试算" and "3550.00" not in answer["reply"]
+    turns[-1]["text"] = "单价 35.50 元/片"
+    answer = client.post(route, json={"turns": turns}).json()
+    assert answer["quote"] is None and "元/套" in answer["question"]
+    turns.pop()
+    turns[-1]["text"] = "半金属，1,200片"
+    item["kind"] = "鼓式"
+    item["outer_arc"] = "200"
 
     monkeypatch.setattr(selection.quotes, "quote_preview", lambda *_: {
         "total": "24000", "unit_price": "20", "currency": "CNY", "quantity": 1200,

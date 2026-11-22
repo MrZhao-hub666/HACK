@@ -74,6 +74,7 @@ export interface AssistantAnswer {
     unit: string;
     currency: string;
     basis: string;
+    unit_only?: boolean;
     material?: string;
   } | null;
 }

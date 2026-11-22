@@ -117,6 +117,43 @@ def material_in(text, prices):
 
 ORDER = re.compile(rf"(?<![a-z0-9_./,+-])({COUNT})({RANGE})?\s*(片|套|件|箱|组|pcs\b|pieces?\b|sets?\b|units?\b)", re.I)
 ORDER_UNITS = {"pcs": "片", "piece": "片", "pieces": "片", "set": "套", "sets": "套", "unit": "件", "units": "件"}
+PACK_SIZE = re.compile(rf"(?:每|一)(套|件|箱|组)\s*(?:有|含|装|为|是|[:=])?\s*({NUMBER})(?![\d.])\s*片")
+MANUAL_PRICE = re.compile(
+    rf"(?:已核(?:准|对)?|确认)?单价{ASSIGNMENT}({NUMBER})(?![\d.])\s*(?:元|人民币|cny)\s*[/每]\s*(片|套|件|箱|组)",
+    re.I,
+)
+
+
+def quote_order_text(text):
+    return MANUAL_PRICE.sub(" ", PACK_SIZE.sub(" ", unicodedata.normalize("NFKC", text.replace("，", "、"))))
+
+
+def pack_size(words, unit):
+    for text in words:
+        values = {Decimal(count) for package, count in PACK_SIZE.findall(text) if package == unit}
+        if values:
+            if len(values) != 1:
+                raise ValueError(f"请确认每{unit}的片数。")
+            count = values.pop()
+            if count != count.to_integral_value() or not 1 <= count <= 10000:
+                raise ValueError(f"每{unit}片数须为 1 到 10000 的整数。")
+            return int(count)
+    return None
+
+
+def manual_price(words, unit):
+    for text in words:
+        prices = {(Decimal(value), priced_unit) for value, priced_unit in MANUAL_PRICE.findall(text)}
+        if prices:
+            if len(prices) != 1:
+                raise ValueError("请确认本次使用的单价。")
+            value, priced_unit = prices.pop()
+            if priced_unit != unit:
+                raise ValueError(f"请按本次采购单位填写单价，单位为元/{unit}。")
+            if not 0 < value <= 100000000 or value != value.quantize(CENT):
+                raise ValueError("单价须大于 0 且最多保留两位小数。")
+            return value
+    return None
 
 
 def read_order(text):

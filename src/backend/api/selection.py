@@ -14,7 +14,7 @@ from .db import database
 from .inbox import get_inquiry
 from .quote_calculation import (
     NUMBER, ORDER, QuoteConfigurationError, calculate_material_quote, material_in,
-    normalize, prices_by_material, read_dimensions, read_order,
+    manual_price, normalize, pack_size, prices_by_material, quote_order_text, read_dimensions, read_order,
 )
 
 router = APIRouter()
@@ -29,12 +29,12 @@ class Draft(quotes.QuoteLine):
     request_key: UUID
 
 
-def assistant_price(item, words, quantity, unit):
+def assistant_price(item, words, quantity, unit, *, preview=False):
     thickness = (item["thickness"] or "").split("/")
     dimensions = {}
     for label, raw in zip(
         ("外弧", "宽度", "厚度1", "厚度2"),
-        (item["outer_arc"], item["width"], thickness[0], thickness[1] if len(thickness) == 2 else None),
+        (item["outer_arc"], item["width"], thickness[0], thickness[-1] if len(thickness) <= 2 else None),
     ):
         if raw and re.fullmatch(NUMBER, normalize(raw).strip()):
             dimensions[label] = normalize(raw).strip()
@@ -73,20 +73,35 @@ def assistant_price(item, words, quantity, unit):
             **{key: quote[key] for key in ("unit_price", "total", "currency", "quantity", "unit")},
             "material": quote["material"], "valid_until": quote.get("valid_until"), "basis": "目录价目",
         }, ""
-    if item["kind"] != "鼓式" or unit != "片":
-        return None, "当前规格缺少适用的目录价目，请确认材质、计价单位和有效单价。"
+    if not preview and (price := manual_price(words, unit)) is not None:
+        return {
+            "unit_price": format(price, ".2f"), "total": format(price * quantity, ".2f"),
+            "currency": "CNY", "quantity": quantity, "unit": unit, "basis": "已核单价试算",
+        }, ""
+    missing = [label for label in ("外弧", "宽度", "厚度1", "厚度2") if label not in dimensions]
+    if item["kind"] != "鼓式" and missing:
+        return None, (
+            "要用材料公式试算，请补充" + "、".join(missing) +
+            f"（毫米）。如已核对单价，可输入「单价 35 元/{unit}」计算合计。"
+        )
+
+    pieces = 1 if unit == "片" else pack_size(words, unit)
+    if pieces is None:
+        return None, f"请补充每{unit}的片数，例如「每{unit} 4 片」。"
+    if quantity * pieces > 100000000:
+        raise ValueError("折算后片数不能超过一亿。")
 
     prices = prices_by_material()
     material = next((key for text in words if (key := material_in(text, prices))), None)
     if not material:
         return None, "请确认客户需要的材质。可试算的材料有" + "、".join(name for name, _ in prices.values()) + "。"
 
-    missing = [label for label in ("外弧", "宽度", "厚度1", "厚度2") if label not in dimensions]
     if missing:
         return None, "请用毫米补充" + "、".join(missing) + "，以便试算。"
-    estimate = calculate_material_quote(dimensions, prices[material], quantity)
+    estimate = calculate_material_quote(dimensions, prices[material], quantity * pieces)
     return {
-        **{key: estimate[key] for key in ("unit_price", "total", "material")},
+        "unit_price": format(Decimal(estimate["unit_price"]) * pieces, ".2f"),
+        "total": estimate["total"], "material": estimate["material"],
         "currency": "CNY", "quantity": quantity, "unit": unit, "basis": "预设材料价试算",
     }, ""
 
@@ -97,6 +112,8 @@ def customer_reply(item, quote, follow_up):
     title = item.get("code") or item.get("name") or item["spec_id"]
     reply = f"根据您提供的信息，目录对应型号为 {title}。"
     if quote and quote["basis"] == "目录价目":
+        if quote.get("unit_only"):
+            return reply + f"单价 {quote['currency']} {quote['unit_price']}/{quote['unit']}。" + follow_up
         reply += (
             f"材质为{quote['material']}，数量 {quote['quantity']}{quote['unit']}，"
             f"单价 {quote['currency']} {quote['unit_price']}/{quote['unit']}，"
@@ -117,7 +134,7 @@ def sales_assistant(req: catalogue.Inquiry):
     turns = [
         turn.model_copy(update={"text": clean})
         for turn in req.turns
-        if (clean := ORDER.sub(" ", turn.text).strip())
+        if (clean := ORDER.sub(" ", quote_order_text(turn.text)).strip())
     ]
     if not any(turn.role == "customer" for turn in turns):
         question = "请提供旧件编号、车型或车桥信息。"
@@ -163,7 +180,7 @@ def sales_assistant(req: catalogue.Inquiry):
     answer["question"] = follow_up
     try:
         for text in words:
-            quantity, unit = read_order(text)
+            quantity, unit = read_order(quote_order_text(text))
             if quantity is not None:
                 if quantity > 100000000:
                     raise ValueError("请核对采购数量，单次最多一亿。")
@@ -173,17 +190,25 @@ def sales_assistant(req: catalogue.Inquiry):
                     if answer["question"].startswith("请确认客户需要的材质")
                     else "这批货的价格还需核实。"
                 )
-                if answer["question"].endswith("请先与客户核对尺寸。"):
-                    follow_up = "您提供的尺寸与目录记录有出入，请核对旧件标称尺寸。"
-                    item = None
-                    answer["confirmed"] = False
+                if answer["question"].startswith("请补充每"):
+                    follow_up = f"请问您需要的规格每{unit}有几片？"
                 break
+        else:
+            preview, question = assistant_price(item, words, 1, "片", preview=True)
+            if preview:
+                answer["quote"] = {**preview, "unit_only": True}
+            elif not question.startswith("请确认客户需要的材质"):
+                answer["question"] = question
     except ValueError as exc:
         answer["question"] = str(exc)
         follow_up = str(exc)
     except QuoteConfigurationError as exc:
         answer["question"] = str(exc)
         follow_up = "这批货的价格还需核实。"
+    if answer["question"].endswith("请先与客户核对尺寸。"):
+        follow_up = "您提供的尺寸与目录记录有出入，请核对旧件标称尺寸。"
+        item = None
+        answer["confirmed"] = False
     answer["reply"] = customer_reply(item, answer["quote"], follow_up)
     return answer
 

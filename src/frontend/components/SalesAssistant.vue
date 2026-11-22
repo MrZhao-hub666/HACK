@@ -141,11 +141,11 @@ async function copyReply(index: number, reply: string) {
                 <div>
                   <small>
                     {{ [message.answer.quote.basis, message.answer.quote.material,
-                      message.answer.quote.quantity + " " + message.answer.quote.unit].filter(Boolean).join(" · ") }}
+                      message.answer.quote.unit_only ? "单片价" : message.answer.quote.quantity + " " + message.answer.quote.unit].filter(Boolean).join(" · ") }}
                   </small>
-                  <strong>{{ message.answer.quote.currency }} {{ formatAmount.format(Number(message.answer.quote.total)) }}</strong>
+                  <strong>{{ message.answer.quote.currency }} {{ formatAmount.format(Number(message.answer.quote.unit_only ? message.answer.quote.unit_price : message.answer.quote.total)) }}</strong>
                 </div>
-                <span>{{ formatAmount.format(Number(message.answer.quote.unit_price)) }} / {{ message.answer.quote.unit }}</span>
+                <span v-if="!message.answer.quote.unit_only">{{ formatAmount.format(Number(message.answer.quote.unit_price)) }} / {{ message.answer.quote.unit }}</span>
               </div>
             </article>
             <p v-if="message.answer.question && !message.answer.reply.includes(message.answer.question)"
