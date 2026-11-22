@@ -17,6 +17,7 @@ QUERY = (
 )
 DAY = 24 * 60 * 60
 REFRESH_IN_PROGRESS = "推荐正在更新，请稍后查看结果。"
+NO_NEW_WEB_CANDIDATES = "本次实时检索没有筛选出符合条件的网页推荐。"
 DIRECTIONS = (
     ("主机与车桥配套", r"车桥厂|主机厂|整车厂|整车配套|axle manufacturer|vehicle manufacturer|truck manufacturer"),
     ("经销进口", r"经销商|代理商|进口商|批发商|\b(?:distributors?|importers?|wholesalers?|dealerships?)\b"),
@@ -95,7 +96,10 @@ def web_candidates(hits):
         title = row["title"].strip()
         evidence = (row.get("description") or row.get("evidence") or "").strip()
         context = f"{title} {evidence}"
-        role = direction(title) or direction(evidence)
+        role = (
+            "经销进口" if prospects.inferred_buyer_kind(title, evidence) == "贸易商"
+            else direction(title) or direction(evidence)
+        )
         if not title or not evidence or not role or not COMMERCIAL.search(evidence):
             continue
         if PASSENGER.search(context) and not COMMERCIAL.search(title):
@@ -141,12 +145,15 @@ def recommendations():
     for item in ordered:
         key = prospects.host(item["url"]) if item["market"] else item["url"]
         unique.setdefault(key, item)
+    refresh_message = cache["error"] if cache else ""
+    no_new_candidates = refresh_message == NO_NEW_WEB_CANDIDATES
     return {
         "items": list(unique.values()),
         "configured": configured,
         "auto_due": configured and (not cache or cache["attempted"] <= now - DAY),
         "updated": cache["updated"] if cache else "",
-        "error": cache["error"] if cache else "",
+        "error": "" if no_new_candidates else refresh_message,
+        "notice": refresh_message if no_new_candidates else "",
         "market": MARKET,
         "directions": [label for label, _ in DIRECTIONS] + ["待核实"],
     }
@@ -157,7 +164,7 @@ def refresh(automatic):
         raise HTTPException(503, "请先配置实时网页搜索。")
     now = int(time.time())
     with database(True) as db:
-        cache = db.execute("SELECT attempted,expires FROM discovery_recommendations WHERE id=1").fetchone()
+        cache = db.execute("SELECT attempted,expires,items FROM discovery_recommendations WHERE id=1").fetchone()
         if cache and cache["expires"] > now and not automatic:
             raise HTTPException(409, REFRESH_IN_PROGRESS)
         started = not cache or (
@@ -170,17 +177,26 @@ def refresh(automatic):
                 (now, now + 60),
             )
     if started:
+        notice = ""
         try:
             items = prospects.public_search(QUERY)
         except HTTPException as exc:
-            with database(True) as db:
+            notice = exc.detail
+        else:
+            if (
+                cache
+                and not any(web_candidates(items))
+                and any(web_candidates(json.loads(cache["items"])))
+            ):
+                notice = NO_NEW_WEB_CANDIDATES
+        with database(True) as db:
+            if notice:
                 written = db.execute(
                     """UPDATE discovery_recommendations SET error=?,expires=0
                        WHERE id=1 AND attempted=? AND expires>0""",
-                    (exc.detail, now),
+                    (notice, now),
                 ).rowcount
-        else:
-            with database(True) as db:
+            else:
                 written = db.execute(
                     """UPDATE discovery_recommendations SET items=?,updated=?,error='',expires=0
                        WHERE id=1 AND attempted=? AND expires>0""",

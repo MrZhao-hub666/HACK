@@ -1,5 +1,8 @@
+import logging
 import os
 import re
+from html import unescape
+from time import sleep
 from urllib.parse import urlsplit
 
 import httpx
@@ -7,6 +10,8 @@ from fastapi import HTTPException
 
 from .db import one, utc
 from .markets import DISCOVERY_MARKET_TERMS
+
+logger = logging.getLogger(__name__)
 
 SAMPLES = [
     dict(
@@ -54,13 +59,30 @@ BUYER_TERMS = {
     "渠道伙伴": "trucking industry association",
     "待识别": "truck fleet OR commercial truck workshop",
 }
+PARTS_EVIDENCE = re.compile(
+    r"\b(?:spare|aftermarket|vehicle|truck|brake) parts\b|ersatzteil|fahrzeugteil|配件|零部件",
+    re.I,
+)
+PARTS_TRADE = re.compile(
+    r"\b(?:wholesal\w*|distribut(?:es?|or\w*|ion)|trade in|spare parts shop|online shop|"
+    r"gro(?:ß|ss)handel\w*|handelsunternehmen|fahrzeugteilehandel|anbieter von ersatzteilen)\b"
+    r"|\b(?:we (?:offer|supply|sell)|range of|supplier of)\s+[^.!?\n]{0,65}"
+    r"\b(?:spare|aftermarket|vehicle|truck|brake) parts\b"
+    r"|批发|经销",
+    re.I,
+)
+FLEET_EVIDENCE = re.compile(r"own fleet|our fleet|haulage operator|haulage fleet|prime movers?|车队")
+REPAIR_EVIDENCE = re.compile(
+    r"\b(?:(?:truck|lorry) (?:repair|workshops?)|repair workshops?|service workshops?|our workshops?|bengkel)\b"
+    r"|维修厂|修理厂"
+)
 MARKETS = {
     **DISCOVERY_MARKET_TERMS,
     "印尼": DISCOVERY_MARKET_TERMS["印度尼西亚"],
 }
 
 
-COUNTRY_CODES = {
+MARKET_ALIASES = {
     "my": "malaysia",
     "th": "thailand",
     "ph": "philippines",
@@ -68,14 +90,21 @@ COUNTRY_CODES = {
     "mx": "mexico",
     "ae": "united arab emirates",
     "id": "indonesia",
+    "de": "germany",
+    "deutschland": "germany",
 }
+MARKET_QUERY_NAMES = {name.casefold(): name for name in MARKETS.values()}
 
 
 def market_key(country):
     country = country.strip()
-    return COUNTRY_CODES.get(
+    return MARKET_ALIASES.get(
         country.casefold(), MARKETS.get(country, country).casefold()
     )
+
+
+def market_query_name(country):
+    return MARKET_QUERY_NAMES.get(market_key(country))
 
 
 def valid_url(value):
@@ -126,6 +155,25 @@ def search_credentials():
     return None
 
 
+def search_request(send, url, **kwargs):
+    for attempt in range(2):
+        try:
+            response = send(url, **kwargs)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as exc:
+            if (
+                attempt
+                or exc.response.status_code not in {408, 500, 502, 503, 504}
+                or "retry-after" in exc.response.headers
+            ):
+                raise
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError):
+            if attempt:
+                raise
+        sleep(0.35)
+
+
 def public_search(query, *, domains=()):
     credentials = search_credentials()
     if not credentials:
@@ -140,29 +188,35 @@ def public_search(query, *, domains=()):
             }
             if domains:
                 payload["includeDomains"] = list(domains)
-            response = httpx.post(
+            response = search_request(
+                httpx.post,
                 "https://api.exa.ai/search",
                 json=payload,
                 headers={"x-api-key": key},
                 timeout=10,
             )
-            response.raise_for_status()
             results = response.json().get("results")
         else:
             if domains:
                 scope = " OR ".join(f"site:{domain}" for domain in domains)
                 query = f"({scope}) {query}" if len(domains) > 1 else f"{scope} {query}"
-            response = httpx.get(
+            response = search_request(
+                httpx.get,
                 "https://api.search.brave.com/res/v1/web/search",
                 params={"q": query, "count": 12, "text_decorations": "false"},
                 headers={"X-Subscription-Token": key},
                 timeout=10,
             )
-            response.raise_for_status()
             results = response.json().get("web", {}).get("results", [])
         if not isinstance(results, list):
             raise ValueError("invalid results")
     except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+        reason = (
+            exc.response.status_code
+            if isinstance(exc, httpx.HTTPStatusError)
+            else type(exc).__name__
+        )
+        logger.warning("Public search failed: provider=%s reason=%s", provider, reason)
         raise HTTPException(502, "实时搜索服务不可用，请稍后重试。") from exc
     items = []
     for hit in results:
@@ -189,8 +243,19 @@ def public_search(query, *, domains=()):
     return items
 
 
+def inferred_buyer_kind(title, evidence):
+    text = unescape(re.sub("<[^>]+>", " ", f"{title} {evidence}")).casefold()
+    if PARTS_EVIDENCE.search(text) and PARTS_TRADE.search(text):
+        return "贸易商"
+    if FLEET_EVIDENCE.search(text):
+        return "车队"
+    if REPAIR_EVIDENCE.search(text):
+        return "维修厂"
+    return "待识别"
+
+
 def discover(request):
-    market = MARKETS.get(request.market, request.market)
+    market = market_query_name(request.market) or request.market
     query = f"{market} {BUYER_TERMS[request.kind]} {request.keywords}".strip()
     if request.mode == "samples":
         result = []
@@ -221,11 +286,6 @@ def discover(request):
         seen.add(domain)
         title = str(hit.get("title", "")).strip() or domain
         snippet = str(hit.get("description", ""))[:1500]
-        kind = "待识别"
-        if re.search("workshop|truck repair|lorry repair|bengkel", snippet, re.I):
-            kind = "维修厂"
-        elif re.search("own fleet|our fleet|haulage operator", snippet, re.I):
-            kind = "车队"
         # The hit can be a directory: never treat its domain as the company's verified website.
         items.append(
             dict(
@@ -235,7 +295,7 @@ def discover(request):
                 social="",
                 evidence_url=url,
                 evidence=snippet,
-                kind=kind,
+                kind=inferred_buyer_kind(title, snippet),
                 procurement="待核实",
                 notes="搜索结果；企业名称、经营地与官网待核对。",
                 next_action="检查来源，确认企业身份、经营地及是否直接采购。",

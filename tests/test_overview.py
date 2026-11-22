@@ -118,6 +118,28 @@ def test_contact_profile_defaults_and_survives_older_client_updates(client):
     assert record["contact_gender"] == "女" and record["contact_age_band"] == ""
 
 
+def test_recommendation_refresh_keeps_last_candidates_after_filtered_empty(client, monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    refresh = "/api/discovery/recommendations/refresh"
+    hits = [{
+        "title": "Truck parts company",
+        "url": "https://parts.example",
+        "description": "Workshops are our customers. We sell commercial vehicle brake parts.",
+    }]
+    monkeypatch.setattr(prospects, "public_search", lambda query: hits)
+    previous = client.post(refresh).json()
+    assert previous["items"][0]["direction"] == "经销进口"
+    hits[:] = [{
+        "title": "Passenger car repairs",
+        "url": "https://car.example",
+        "description": "Passenger car repair workshops.",
+    }]
+    filtered = client.post(refresh).json()
+    assert filtered["items"] == previous["items"]
+    assert filtered["updated"] == previous["updated"]
+    assert not filtered["error"] and "没有筛选出符合条件" in filtered["notice"]
+
+
 def test_concurrent_recommendation_refresh_reports_in_progress(client, monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "test-exa")
     feed = "/api/discovery/recommendations"

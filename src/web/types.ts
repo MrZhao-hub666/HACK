@@ -134,6 +134,7 @@ export interface BuyerRecommendations {
   auto_due: boolean;
   updated: string;
   error: string;
+  notice: string;
   market: string;
 }
 export interface DomesticLiveJob {
@@ -246,4 +247,8 @@ export interface AlternativeBatch {
   mode: "local" | "live";
   query: string;
   items: Alternative[];
+  live_search?: {
+    sources: number | null;
+    fallback: "local" | "previous" | null;
+  };
 }

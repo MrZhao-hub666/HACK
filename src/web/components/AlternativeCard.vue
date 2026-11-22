@@ -27,7 +27,6 @@ async function findSources() {
   if (looking.value) return;
   looking.value = true;
   error.value = "";
-  sources.value = null;
   try {
     const response = await api<{ items: PublicSource[] }>(
       "/inquiries/" +
@@ -40,6 +39,7 @@ async function findSources() {
     sources.value = response.items;
   } catch (err) {
     error.value = errorMessage(err);
+    if (sources.value?.length) error.value += " 当前显示上次找到的公开线索。";
     toast("竞争线索搜索失败", "error");
   } finally {
     looking.value = false;

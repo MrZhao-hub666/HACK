@@ -69,7 +69,8 @@ function alternativesChanged(batch: AlternativeBatch) {
     item.value.company_id === batch.source_company_id
   ) {
     item.value.alternatives = batch;
-    if (!item.value.owner) item.value.owner = props.actor;
+    if (!item.value.owner && batch.live_search?.fallback !== "previous")
+      item.value.owner = props.actor;
   }
   emit("reload");
 }

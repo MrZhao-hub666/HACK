@@ -20,6 +20,26 @@ const emit = defineEmits<{
 const mode = ref<"local" | "live">(props.inquiry.alternatives?.mode || "local");
 const busy = ref(false),
   error = ref("");
+const liveSearch = ref<AlternativeBatch["live_search"]>();
+const fallbackNotice = computed(() => {
+  const report = liveSearch.value;
+  if (!report?.fallback) return "";
+  const reason = report.sources === null
+    ? "实时网页搜索暂不可用"
+    : report.sources === 0
+      ? "实时搜索未返回可用网页"
+      : `实时搜索返回 ${report.sources} 条网页，筛选后暂无符合条件的候选`;
+  const source = report.fallback === "local" ? "已改用本地公开资料" : "继续显示上次推荐";
+  return `${reason}。${source}。`;
+});
+const emptyMessage = computed(() => {
+  const sources = liveSearch.value?.sources;
+  if (sources === 0) return "实时搜索未返回可用网页，本地资料中也暂无符合条件的候选。";
+  if (sources) {
+    return `实时搜索返回 ${sources} 条网页，按市场、业务类型和公开证据筛选后，当前暂无可推荐的企业。`;
+  }
+  return "当前没有符合条件的推荐。可以核对企业资料或更换检索来源。";
+});
 const incomplete = computed(
   () =>
     !props.source?.country.trim() ||
@@ -29,6 +49,7 @@ async function search() {
   if (!props.source || busy.value) return;
   busy.value = true;
   error.value = "";
+  liveSearch.value = undefined;
   try {
     const result = await api<AlternativeBatch>(
       "/inquiries/" + props.inquiry.id + "/alternatives",
@@ -39,6 +60,7 @@ async function search() {
         claim: !props.inquiry.owner,
       },
     );
+    liveSearch.value = result.live_search;
     emit("changed", result);
   } catch (err) {
     error.value = errorMessage(err);
@@ -104,6 +126,7 @@ async function search() {
         </p>
       </template>
       <div v-if="error" class="notice" role="alert">{{ error }}</div>
+      <div v-if="fallbackNotice" class="notice" role="status">{{ fallbackNotice }}</div>
       <LoadingSkeleton
         v-if="busy && !inquiry.alternatives"
         layout="rows"
@@ -123,7 +146,7 @@ async function search() {
         </div>
         <p class="meta">检索条件 · {{ inquiry.alternatives.query }}</p>
         <p v-if="!inquiry.alternatives.items.length" class="empty">
-          当前没有符合条件的推荐。可以核对企业资料或更换检索来源。
+          {{ emptyMessage }}
         </p>
         <AlternativeCard
           v-for="r in inquiry.alternatives.items"

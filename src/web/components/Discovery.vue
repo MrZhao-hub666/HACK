@@ -26,23 +26,29 @@ const form = ref({
   searching = ref(false),
   saving = ref(false);
 const busy = computed(() => searching.value || saving.value);
+let resultCriteria = "";
 async function run(manual = false) {
   if (busy.value || mode.value === "domestic") return;
+  const criteria = {
+    ...form.value,
+    market: selectedMarket.value || customMarket.value,
+    mode: mode.value,
+  };
+  const key = JSON.stringify(criteria);
   searching.value = true;
   error.value = "";
-  result.value = null;
+  if (key !== resultCriteria) result.value = null;
   try {
     result.value = await api<DiscoveryResult>(
       "/discovery/search",
       "POST",
-      {
-        ...form.value,
-        market: selectedMarket.value || customMarket.value,
-        mode: mode.value,
-      },
+      criteria,
     );
+    resultCriteria = key;
   } catch (e) {
     error.value = errorMessage(e);
+    if (result.value?.items.length)
+      error.value += " 当前显示相同检索条件的上次结果。";
     if (manual) toast("买家搜索失败", "error");
   } finally {
     searching.value = false;
@@ -90,7 +96,7 @@ onMounted(run);
       <div class="fields">
         <label>
           目标市场
-          <select v-model="selectedMarket">
+          <select v-model="selectedMarket" :disabled="busy">
             <option value="">自定义市场…</option>
             <optgroup
               v-for="group in config.discovery_markets"
@@ -113,11 +119,12 @@ onMounted(run);
             required
             maxlength="70"
             v-model.trim="customMarket"
+            :disabled="busy"
             placeholder="输入国家、地区或城市"
           />
         </label>
         <label
-          >业务类型<select v-model="form.kind">
+          >业务类型<select v-model="form.kind" :disabled="busy">
             <option v-for="k in kinds" :value="k">
               {{ k === "待识别" ? "全部类型" : k }}
             </option>
@@ -129,6 +136,7 @@ onMounted(run);
           <icon name="search" />
           <input
             v-model.trim="form.keywords"
+            :disabled="busy"
             placeholder="可选关键词，如维修、Labu、fleet"
             aria-label="发现关键词"
           />
@@ -164,7 +172,7 @@ onMounted(run);
         result.mode === "samples" ? "已核验样例" : "实时网页搜索"
       }}</span>
     </div>
-    <LoadingSkeleton v-if="searching" layout="cards" label="正在查找候选企业" />
+    <LoadingSkeleton v-if="searching && !result" layout="cards" label="正在查找候选企业" />
     <div v-else-if="result" class="cards discovery-cards">
       <article
         class="companycard"

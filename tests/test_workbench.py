@@ -99,6 +99,8 @@ def test_live_provider(client, monkeypatch):
     for market, query_market in (
         ("巴西", "Brazil"),
         ("德国", "Germany"),
+        ("DE", "Germany"),
+        ("Deutschland", "Germany"),
         ("美国", "United States"),
         ("印尼", "Indonesia"),
         ("Rotterdam", "Rotterdam"),
@@ -153,7 +155,7 @@ def test_exa_live_search(client, monkeypatch):
                     {
                         "title": "Commercial Vehicle Service",
                         "url": "https://example.org/service",
-                        "highlights": ["Heavy truck repair workshop", "Brake service"],
+                        "highlights": ["Heavy truck workshop", "Brake service"],
                     },
                     {"url": "ftp://example.org", "title": "Unsupported URL"},
                 ]
@@ -173,7 +175,8 @@ def test_exa_live_search(client, monkeypatch):
     ]
     items = result.json()["items"]
     assert len(items) == 1
-    assert items[0]["evidence"] == "Heavy truck repair workshop\nBrake service"
+    assert items[0]["evidence"] == "Heavy truck workshop\nBrake service"
+    assert items[0]["kind"] == "维修厂"
     assert items[0]["procurement"] == "待核实"
     prospects.public_search("brake repair", domains=("example.org/service",))
     assert requests[-1]["includeDomains"] == ["example.org/service"]
@@ -633,6 +636,103 @@ def test_alternative_context_change_during_search(client, monkeypatch):
     assert (
         client.get(root).json()["alternatives"]["generated_at"] == empty["generated_at"]
     )
+
+
+def test_alternative_live_german_market_and_type_evidence(client, monkeypatch):
+    import httpx
+
+    company = client.post(
+        "/api/companies",
+        json={"name": "Source Parts", "country": "DE", "kind": "经销代理商"},
+    ).json()
+    ident = event(client).json()["inquiry_id"]
+    root = f"/api/inquiries/{ident}"
+    client.patch(root, json={"company_id": company["id"], "owner": "林悦"})
+    criteria = {"source_company_id": company["id"], "mode": "live"}
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    hits = [
+        ("Anbieter", "Anbieter von Ersatzteilen für LKW mit Hauptsitz in Deutschland."),
+        ("Parts Seller", "We offer commercial vehicle spare parts to workshops in Germany."),
+        ("Repair Shop", "Heavy truck repair workshop in Germany."),
+        ("Parts Buyer", "Truck repair workshop in Germany. We source spare parts from local suppliers."),
+        ("Foreign Parts", "UK distributor of German commercial vehicle spare parts."),
+        ("Foreign Importer", "UK distributor of commercial vehicle spare parts. It imports from Germany."),
+        ("Foreign Exporter", "We supply commercial truck spare parts from the United Kingdom to Germany."),
+        ("Passenger Cars", "Großhandel für Pkw-Ersatzteile in Deutschland."),
+    ]
+    failing = True
+
+    def search(url, **kwargs):
+        assert kwargs["json"]["query"].startswith("Germany ")
+        return httpx.Response(
+            401 if failing else 200,
+            request=httpx.Request("POST", url),
+            json={
+                "results": [
+                    {
+                        "title": name,
+                        "url": f"https://example-{index}.com/",
+                        "highlights": [evidence],
+                    }
+                    for index, (name, evidence) in enumerate(hits)
+                ]
+            },
+        )
+
+    monkeypatch.setattr(prospects.httpx, "post", search)
+    assert client.post(root + "/alternatives", json=criteria).status_code == 502
+    assert client.get(root).json()["alternatives"] is None
+    failing = False
+    result = client.post(root + "/alternatives", json=criteria).json()
+    assert {c["profile"]["name"] for c in result["items"]} == {"Anbieter", "Parts Seller"}
+    assert all(c["profile"]["procurement"] == "待核实" for c in result["items"])
+    assert result["live_search"] == {"sources": 8, "fallback": None}
+    failing = True
+    cached = client.post(root + "/alternatives", json=criteria).json()
+    assert cached["live_search"] == {"sources": None, "fallback": "previous"}
+    assert cached["generated_at"] == result["generated_at"]
+    assert cached["items"] == result["items"]
+
+
+def test_alternative_live_retry_and_local_fallback(client, monkeypatch):
+    import httpx
+
+    company = client.post(
+        "/api/companies", json={"name": "Source Fleet", "country": "MY", "kind": "车队"}
+    ).json()
+    ident = event(client).json()["inquiry_id"]
+    root = f"/api/inquiries/{ident}"
+    client.patch(root, json={"company_id": company["id"], "owner": "林悦"})
+    criteria = {"source_company_id": company["id"], "mode": "live"}
+    monkeypatch.setenv("BRAVE_API_KEY", "test-brave")
+    outcomes = []
+    hits = [
+        dict(title="Live Fleet", url="https://fleet.example", description="Own haulage fleet in Malaysia.")
+    ]
+
+    def search(url, **kwargs):
+        assert kwargs["params"]["q"] == "Malaysia haulage fleet own workshop"
+        status = outcomes.pop(0)
+        if status == "timeout":
+            raise httpx.ReadTimeout("timed out")
+        return httpx.Response(
+            status, request=httpx.Request("GET", url), json={"web": {"results": hits}}
+        )
+
+    monkeypatch.setattr(prospects.httpx, "get", search)
+    outcomes[:] = ["timeout", 200]
+    live = client.post(root + "/alternatives", json=criteria).json()
+    assert not outcomes
+    assert live["mode"] == "live" and live["items"][0]["profile"]["name"] == "Live Fleet"
+    for statuses, expected_sources in (([503, 503], None), ([401], None), ([200], 0)):
+        outcomes[:] = statuses
+        hits.clear()
+        fallback = client.post(root + "/alternatives", json=criteria).json()
+        assert not outcomes
+        assert fallback["mode"] == "local" and len(fallback["items"]) == 3
+        assert fallback["live_search"] == {"sources": expected_sources, "fallback": "local"}
+        assert all(c["profile"]["source"] == "已核验样例" for c in fallback["items"])
+        assert client.get(root).json()["alternatives"]["mode"] == "local"
 
 
 def test_alternative_company_edits_and_market_aliases(client):
