@@ -163,12 +163,21 @@ def keys(profile):
 def market_present(text, places):
     for place in places:
         if not place.isascii():
-            if place in text:
+            location = re.sub(
+                rf"(?:从|自)\s*{re.escape(place)}\s*(?:采购|进口|购入)"
+                rf"|(?:向|销往|出口到|出口至|发往)\s*{re.escape(place)}",
+                "",
+                text,
+            )
+            if place in location:
                 return True
             continue
         country = rf"\b{re.escape(place)}\b"
         location = re.sub(
-            rf"\b(?:import(?:s|ed|ing)? from|made in|manufactured in|to|into|aus|nach)"
+            rf"\b(?:(?:import(?:s|ed|ing)?|sourc(?:e[ds]?|ing)|supplied|purchased|bought)"
+            rf"\s+[^.!?;\n]{{0,70}}?\bfrom|"
+            rf"made in|manufactured in|aus|nach|"
+            rf"(?:to|into)(?:\s+(?:buyers|customers|(?:repair )?workshops?)\s+(?:across|in|throughout))?)"
             rf"\s+(?:the\s+)?{country}",
             "",
             text,
@@ -454,8 +463,7 @@ def generate(ident: int, req: Search, user=Depends(workspace_user)):
                 previous = batch(db, ident)
                 if previous and previous["items"]:
                     live_search["fallback"] = "previous"
-                    return {**previous, "live_search": live_search}
-                if failure:
+                elif failure:
                     raise HTTPException(
                         502, "实时网页搜索失败，本地资料和历史推荐中也没有符合条件的候选。"
                     ) from failure
@@ -463,6 +471,8 @@ def generate(ident: int, req: Search, user=Depends(workspace_user)):
             owner = user["display_name"]
             db.execute("UPDATE inquiries SET owner=? WHERE id=?", (owner, ident))
             audit(db, ident, owner, "分配负责人", owner)
+        if live_search and live_search["fallback"] == "previous":
+            return {**batch(db, ident), "live_search": live_search}
         db.execute("DELETE FROM alternative_batches WHERE inquiry_id=?", (ident,))
         db.execute(
             "INSERT INTO alternative_batches VALUES(?,?,?,?,?)",

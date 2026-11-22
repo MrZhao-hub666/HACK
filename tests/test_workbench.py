@@ -652,12 +652,18 @@ def test_alternative_live_german_market_and_type_evidence(client, monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "test-exa")
     hits = [
         ("Anbieter", "Anbieter von Ersatzteilen für LKW mit Hauptsitz in Deutschland."),
-        ("Parts Seller", "We offer commercial vehicle spare parts to workshops in Germany."),
+        ("Parts Seller", "We offer commercial vehicle spare parts to workshops in Germany. Our warehouse is in Germany."),
         ("Repair Shop", "Heavy truck repair workshop in Germany."),
         ("Parts Buyer", "Truck repair workshop in Germany. We source spare parts from local suppliers."),
+        ("Distributor's Customer", "Heavy truck repair workshop in Germany. A local distributor supplies our spare parts."),
+        ("Repair Partner", "We run a commercial truck workshop in Germany. We recommend our partners. They sell spare parts."),
         ("Foreign Parts", "UK distributor of German commercial vehicle spare parts."),
         ("Foreign Importer", "UK distributor of commercial vehicle spare parts. It imports from Germany."),
         ("Foreign Exporter", "We supply commercial truck spare parts from the United Kingdom to Germany."),
+        ("Foreign Supplier", "We sell commercial vehicle spare parts to customers throughout Germany."),
+        ("Foreign Workshop Supplier", "UK distributor. We supply commercial truck spare parts to workshops in Germany."),
+        ("Foreign Sourcing", "UK distributor. We source commercial vehicle spare parts from Germany."),
+        ("Foreign Sourcing in Chinese", "总部位于伦敦的商用车配件经销商，从德国采购原厂零部件。"),
         ("Passenger Cars", "Großhandel für Pkw-Ersatzteile in Deutschland."),
     ]
     failing = True
@@ -686,12 +692,44 @@ def test_alternative_live_german_market_and_type_evidence(client, monkeypatch):
     result = client.post(root + "/alternatives", json=criteria).json()
     assert {c["profile"]["name"] for c in result["items"]} == {"Anbieter", "Parts Seller"}
     assert all(c["profile"]["procurement"] == "待核实" for c in result["items"])
-    assert result["live_search"] == {"sources": 8, "fallback": None}
+    assert result["live_search"] == {"sources": 14, "fallback": None}
     failing = True
-    cached = client.post(root + "/alternatives", json=criteria).json()
+    client.patch(root, json={"owner": ""}).raise_for_status()
+    cached = client.post(root + "/alternatives", json={**criteria, "claim": True}).json()
     assert cached["live_search"] == {"sources": None, "fallback": "previous"}
     assert cached["generated_at"] == result["generated_at"]
     assert cached["items"] == result["items"]
+    assert client.get(root).json()["owner"] == "林悦"
+
+
+def test_alternative_live_recognizes_workshops_and_haulage_services(client, monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "test-exa")
+    pages = [
+        ("Independent Repairs", "Independent commercial vehicle workshop in Germany, providing maintenance."),
+        ("Service Center", "Unser Unternehmen ist eine LKW-Werkstatt für Nutzfahrzeuge in Deutschland."),
+        ("Freight Company", "We provide container haulage services throughout Germany."),
+        ("Parts Shop", "We sell spare parts to commercial vehicle workshops in Germany."),
+    ]
+    monkeypatch.setattr(prospects, "public_search", lambda query: [
+        {"title": name, "url": f"https://company-{index}.example/", "description": evidence}
+        for index, (name, evidence) in enumerate(pages)
+    ])
+    for kind, expected in (
+        ("维修厂", {"Independent Repairs", "Service Center"}),
+        ("车队", {"Freight Company"}),
+    ):
+        company = client.post("/api/companies", json={
+            "name": "Source " + kind,
+            "country": "德国",
+            "kind": kind,
+        }).json()
+        ident = event(client, event_id=kind, thread_key=kind).json()["inquiry_id"]
+        root = f"/api/inquiries/{ident}"
+        client.patch(root, json={"company_id": company["id"], "owner": "林悦"}).raise_for_status()
+        result = client.post(root + "/alternatives", json={
+            "source_company_id": company["id"], "mode": "live",
+        }).json()
+        assert {c["profile"]["name"] for c in result["items"]} == expected
 
 
 def test_alternative_live_retry_and_local_fallback(client, monkeypatch):

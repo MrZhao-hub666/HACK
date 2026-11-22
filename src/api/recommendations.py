@@ -91,15 +91,23 @@ def domestic_candidates(db):
         }
 
 
-def web_candidates(hits):
+def archived_companies(db):
+    return db.execute("SELECT name,country,domain FROM companies WHERE saved=1").fetchall()
+
+
+def web_candidates(hits, archived):
+    names = {(row["name"].casefold(), prospects.market_key(row["country"])) for row in archived}
+    domains = {row["domain"] for row in archived if row["domain"]}
+    market = prospects.market_key(MARKET)
     for row in hits:
         title = row["title"].strip()
+        if prospects.host(row["url"]) in domains or (title.casefold(), market) in names:
+            continue
         evidence = (row.get("description") or row.get("evidence") or "").strip()
         context = f"{title} {evidence}"
-        role = (
-            "经销进口" if prospects.inferred_buyer_kind(title, evidence) == "贸易商"
-            else direction(title) or direction(evidence)
-        )
+        role = direction(title) or direction(evidence)
+        if role in {"", "维修服务"} and prospects.inferred_buyer_kind(title, evidence) == "贸易商":
+            role = "经销进口"
         if not title or not evidence or not role or not COMMERCIAL.search(evidence):
             continue
         if PASSENGER.search(context) and not COMMERCIAL.search(title):
@@ -127,18 +135,10 @@ def recommendations():
     configured = prospects.search_credentials() is not None
     with database() as db:
         cache = db.execute("SELECT * FROM discovery_recommendations WHERE id=1").fetchone()
-        archived = db.execute("SELECT name,country,domain FROM companies WHERE saved=1").fetchall()
+        archived = archived_companies(db)
         items = list(domestic_candidates(db))
-    names = {
-        (row["name"].casefold(), prospects.market_key(row["country"])) for row in archived
-    }
-    domains = {row["domain"] for row in archived if row["domain"]}
     if cache:
-        for item in web_candidates(json.loads(cache["items"])):
-            if prospects.host(item["url"]) not in domains and (
-                item["title"].casefold(), prospects.market_key(item["market"])
-            ) not in names:
-                items.append(item)
+        items.extend(web_candidates(json.loads(cache["items"]), archived))
     ordered = sorted(items, key=lambda item: item["published"], reverse=True)
     ordered.sort(key=lambda item: item["grade"])
     unique = {}
@@ -182,14 +182,13 @@ def refresh(automatic):
             items = prospects.public_search(QUERY)
         except HTTPException as exc:
             notice = exc.detail
-        else:
-            if (
-                cache
-                and not any(web_candidates(items))
-                and any(web_candidates(json.loads(cache["items"])))
-            ):
-                notice = NO_NEW_WEB_CANDIDATES
         with database(True) as db:
+            if not notice and cache:
+                archived = archived_companies(db)
+                if not any(web_candidates(items, archived)) and any(
+                    web_candidates(json.loads(cache["items"]), archived)
+                ):
+                    notice = NO_NEW_WEB_CANDIDATES
             if notice:
                 written = db.execute(
                     """UPDATE discovery_recommendations SET error=?,expires=0

@@ -66,14 +66,21 @@ PARTS_EVIDENCE = re.compile(
 PARTS_TRADE = re.compile(
     r"\b(?:wholesal\w*|distribut(?:es?|or\w*|ion)|trade in|spare parts shop|online shop|"
     r"gro(?:ß|ss)handel\w*|handelsunternehmen|fahrzeugteilehandel|anbieter von ersatzteilen)\b"
-    r"|\b(?:we (?:offer|supply|sell)|range of|supplier of)\s+[^.!?\n]{0,65}"
+    r"|\b(?:range of|supplier of)\s+[^.!?\n]{0,65}"
     r"\b(?:spare|aftermarket|vehicle|truck|brake) parts\b"
     r"|批发|经销",
     re.I,
 )
-FLEET_EVIDENCE = re.compile(r"own fleet|our fleet|haulage operator|haulage fleet|prime movers?|车队")
+DIRECT_PARTS_TRADE = re.compile(
+    r"\bwe (?:offer|supply|sell)\s+[^.!?\n]{0,65}"
+    r"\b(?:spare|aftermarket|vehicle|truck|brake) parts\b|\bwholesale (?:company|business)\b"
+)
+FLEET_EVIDENCE = re.compile(
+    r"own fleet|our fleet|haulage (?:operator|fleet|services)|prime movers?|车队"
+)
 REPAIR_EVIDENCE = re.compile(
-    r"\b(?:(?:truck|lorry) (?:repair|workshops?)|repair workshops?|service workshops?|our workshops?|bengkel)\b"
+    r"\b(?:(?:truck|lorry) repair|(?:truck|lorry|commercial vehicle|hgv|repair|service|our) workshops?|bengkel)\b"
+    r"|\b(?:lkw|nutzfahrzeug)[ -]?werkst(?:att|ätten)\b"
     r"|维修厂|修理厂"
 )
 MARKETS = {
@@ -245,12 +252,15 @@ def public_search(query, *, domains=()):
 
 def inferred_buyer_kind(title, evidence):
     text = unescape(re.sub("<[^>]+>", " ", f"{title} {evidence}")).casefold()
-    if PARTS_EVIDENCE.search(text) and PARTS_TRADE.search(text):
+    has_parts = PARTS_EVIDENCE.search(text)
+    if has_parts and DIRECT_PARTS_TRADE.search(text):
         return "贸易商"
     if FLEET_EVIDENCE.search(text):
         return "车队"
     if REPAIR_EVIDENCE.search(text):
         return "维修厂"
+    if has_parts and PARTS_TRADE.search(text):
+        return "贸易商"
     return "待识别"
 
 

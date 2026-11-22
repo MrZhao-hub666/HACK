@@ -125,19 +125,39 @@ def test_recommendation_refresh_keeps_last_candidates_after_filtered_empty(clien
         "title": "Truck parts company",
         "url": "https://parts.example",
         "description": "Workshops are our customers. We sell commercial vehicle brake parts.",
+    }, {
+        "title": "Truck Axle Manufacturer",
+        "url": "https://axle.example",
+        "description": "We are a truck axle manufacturer and offer a range of aftermarket parts.",
     }]
     monkeypatch.setattr(prospects, "public_search", lambda query: hits)
     previous = client.post(refresh).json()
-    assert previous["items"][0]["direction"] == "经销进口"
-    hits[:] = [{
-        "title": "Passenger car repairs",
-        "url": "https://car.example",
-        "description": "Passenger car repair workshops.",
-    }]
-    filtered = client.post(refresh).json()
-    assert filtered["items"] == previous["items"]
-    assert filtered["updated"] == previous["updated"]
-    assert not filtered["error"] and "没有筛选出符合条件" in filtered["notice"]
+    assert {item["title"]: item["direction"] for item in previous["items"]} == {
+        "Truck parts company": "经销进口",
+        "Truck Axle Manufacturer": "主机与车桥配套",
+    }
+    client.post("/api/companies", json={
+        "name": "Archived Parts Seller",
+        "country": "马来西亚",
+        "website": "https://archived.example",
+    }).raise_for_status()
+    for candidate in (
+        {
+            "title": "Passenger car repairs",
+            "url": "https://car.example",
+            "description": "Passenger car repair workshops.",
+        },
+        {
+            "title": "Archived Parts Seller catalog",
+            "url": "https://archived.example/catalog",
+            "description": "We sell commercial vehicle spare parts.",
+        },
+    ):
+        hits[:] = [candidate]
+        filtered = client.post(refresh).json()
+        assert filtered["items"] == previous["items"]
+        assert filtered["updated"] == previous["updated"]
+        assert not filtered["error"] and "没有筛选出符合条件" in filtered["notice"]
 
 
 def test_concurrent_recommendation_refresh_reports_in_progress(client, monkeypatch):
